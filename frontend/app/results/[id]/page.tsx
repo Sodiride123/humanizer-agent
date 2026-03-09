@@ -306,6 +306,30 @@ export default function ResultsPage() {
             </div>
           ) : (
             <div className="rounded-xl p-6" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)" }}>
+              {/* Score Comparison Banner */}
+              {humanized.original_score !== undefined && humanized.new_score !== undefined && (
+                <div className="mb-4 p-4 rounded-lg flex items-center justify-between" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                  <div className="flex items-center gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold" style={{ color: "var(--accent-ai)" }}>{humanized.original_score}%</div>
+                      <div className="text-xs" style={{ color: "var(--text-secondary)" }}>Before</div>
+                    </div>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                      <path d="M5 12h14M15 8l4 4-4 4" stroke="var(--accent-human)" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold" style={{ color: "var(--accent-human)" }}>{humanized.new_score}%</div>
+                      <div className="text-xs" style={{ color: "var(--text-secondary)" }}>After</div>
+                    </div>
+                  </div>
+                  {humanized.improvement !== undefined && humanized.improvement > 0 && (
+                    <div className="text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "var(--accent-human)" }}>
+                      {humanized.improvement}% less AI-detectable
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Header with toggle and copy */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">Humanised Text</h3>

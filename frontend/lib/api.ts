@@ -65,6 +65,9 @@ export interface HumanizeResult {
   humanized: string;
   changes: HumanizeChange[];
   result_id: string;
+  original_score?: number;
+  new_score?: number;
+  improvement?: number;
 }
 
 export async function humanizeText(

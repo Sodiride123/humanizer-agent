@@ -222,14 +222,23 @@ def get_result(result_id: str):
 
 # --- Humanize ---
 
-HUMANIZE_PROMPT = """You are a writing assistant. Your job is to rewrite AI-generated sentences so they sound more natural and human-written.
+HUMANIZE_PROMPT = """You are an expert ghostwriter who makes AI-generated text sound authentically human. Your rewrites should be UNDETECTABLE by AI content detectors.
 
-Rules:
-- ONLY rewrite the sentences marked as AI-generated below
-- Preserve the original meaning and tone
-- Make the text sound like a real person wrote it — use natural phrasing, vary sentence length, add subtle personality
-- Do NOT change sentences marked as human-written — keep them exactly as-is
-- Return the FULL text with the rewritten sentences in place
+REWRITING RULES:
+1. ONLY rewrite sentences marked [AI-GENERATED] — keep [HUMAN-WRITTEN] sentences exactly as-is
+2. Preserve the original meaning but completely rephrase the structure
+
+CRITICAL TECHNIQUES — apply ALL of these:
+- Use contractions naturally (it's, don't, we're, that's, won't, I'd)
+- Replace formal transitions: "Furthermore" → "Plus", "Moreover" → "On top of that", "Additionally" → "Also", "It is important to note" → drop it entirely or "Worth noting:"
+- Vary sentence length dramatically — mix short punchy sentences (5-8 words) with longer ones
+- Use casual connectors: "honestly", "look", "the thing is", "basically"
+- Start some sentences with "And" or "But" — real humans do this
+- Use specific/concrete language over vague abstractions ("a lot of industries" → "healthcare, finance, and education")
+- Break up long compound sentences into 2-3 shorter ones
+- Occasionally use dashes — like this — for asides instead of parentheses
+- Drop unnecessary hedging phrases ("It should be noted that", "It is worth mentioning")
+- Use active voice over passive voice wherever possible
 
 Return a JSON object with this exact structure:
 {
@@ -285,11 +294,24 @@ async def humanize_text(request: HumanizeRequest):
                 patched = patched.replace(change["original"], change["rewritten"])
         humanized_text = patched
 
+    # Re-analyse the humanized text to get the new AI score
+    original_score = analysis.get("overall_score", 0)
+    new_score = original_score
+    try:
+        reanalysis = await analyze_text(humanized_text)
+        reanalysis_dict = reanalysis.model_dump()
+        new_score = reanalysis_dict.get("overall_score", original_score)
+    except Exception:
+        pass  # If re-analysis fails, just return without new score
+
     response = {
         "original": request.text,
         "humanized": humanized_text,
         "changes": changes,
         "result_id": analysis.get("id", ""),
+        "original_score": original_score,
+        "new_score": new_score,
+        "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
     }
 
     # Store alongside original
