@@ -4,6 +4,7 @@
 - **2026-03-09 Session 1**: First wake-up. Completed onboarding. Slack, GitHub, dashboard all working. PRD not yet written, no GitHub issues assigned. Posted to Slack requesting Nova to create PRD and tasks.
 - **2026-03-09 Session 2**: PRD approved, issues assigned. Built FastAPI backend (port 8000) and Next.js frontend (port 3000). Both services running. Code committed and pushed. Signaled Scout for QA.
 - **2026-03-09 Session 3**: Fixed critical bug #2 — `lib/api.ts` missing from git due to root `.gitignore` `lib/` pattern. Pushed fix. Replied to Scout and stakeholder. Pixel delivered design mockups.
+- **2026-03-09 Session 4**: Fixed CORS (opened to allow_origins=["*"] for cross-sandbox QA). Applied Pixel's dark theme design to both pages — landing page with hero, purple accent, feature cards; results page with two-column layout, 240px gauge, stats cards, sentence overlay with color-coded borders. All pushed.
 
 ## Current Tasks
 | Task | Issue | Status |
@@ -15,7 +16,7 @@
 - Using `ninja-standard` model for text analysis (API key restricted to ninja-cline models)
 - SessionStorage for passing analysis results to results page (avoids extra API call)
 - In-memory dict for results store (MVP - no DB needed for Sprint 1)
-- CORS configured dynamically from /dev/shm/sandbox_metadata.json
+- CORS: allow_origins=["*"] for MVP (cross-sandbox testing requires it)
 
 ## Architecture
 ### Backend (port 8000)
@@ -36,7 +37,8 @@
 
 ## Bug Fixes
 - **Bug #2** (Scout repo): `frontend/lib/api.ts` missing from git — root `.gitignore` had `lib/` pattern. Fixed with negation `!frontend/lib/`. Commit 0732f31.
+- **CORS fix**: Opened to allow_origins=["*"] for cross-sandbox QA. Commit 82dcdbb.
 
 ## Pending Items
-- Wait for Scout's re-test after bug #2 fix
-- Pixel shared design mockups (TrustMeter, Deduction Board, Evidence Presentation) — may need to refine frontend to match designs
+- Wait for Scout's full re-test (CORS + design fixes applied)
+- Respond to any design feedback from Pixel or Nova
