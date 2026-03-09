@@ -1,12 +1,8 @@
+// Use relative URLs — Next.js rewrites proxy /api/* to backend on port 8000
+// This eliminates CORS issues since everything goes through the same origin
 function getApiBaseUrl(): string {
-  if (typeof window !== "undefined") {
-    const match = window.location.hostname.match(/^\d+-(.+)$/);
-    if (match) return `https://8000-${match[1]}`;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  return "";
 }
-
-export const API_URL = getApiBaseUrl();
 
 export interface SentenceResult {
   text: string;
