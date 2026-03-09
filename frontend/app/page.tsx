@@ -74,57 +74,51 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fafbfc]">
-      {/* Header */}
-      <header className="border-b border-gray-200 bg-white">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" rx="8" fill="#4F46E5"/>
-            <path d="M16 6L20 14H12L16 6Z" fill="white"/>
-            <path d="M12 14H20L18 22H14L12 14Z" fill="white" opacity="0.8"/>
-            <path d="M14 22H18L16 26L14 22Z" fill="white" opacity="0.6"/>
-          </svg>
-          <h1 className="text-xl font-bold text-gray-900">AI Content Detector</h1>
+    <div className="min-h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
+      {/* Nav */}
+      <header className="h-16 flex items-center px-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="max-w-[1200px] mx-auto w-full flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: "var(--accent-action)" }}>
+            H
+          </div>
+          <span className="text-xl font-bold text-white">Humaniser</span>
         </div>
       </header>
 
-      {/* Main */}
-      <main className="flex-1 max-w-4xl mx-auto px-4 py-8 w-full">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Detect AI-Generated Content</h2>
-          <p className="text-gray-600 text-lg">Paste text, upload a file, or enter a URL to analyze</p>
+      {/* Hero */}
+      <main className="flex-1 max-w-[1200px] mx-auto px-6 py-16 w-full">
+        <div className="text-center mb-8 max-w-[720px] mx-auto">
+          <h1 className="text-5xl font-bold text-white mb-4 leading-tight">
+            Make Your AI Text Sound Human.
+          </h1>
+          <p className="text-lg" style={{ color: "var(--text-secondary)" }}>
+            Paste your AI-generated text and get a natural human-sounding version in seconds.
+          </p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg mb-6 max-w-md mx-auto">
-          {(["paste", "upload", "url"] as InputMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMode(m); setError(""); }}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                mode === m ? "bg-white text-gray-900 shadow-sm" : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              {m === "paste" ? "Paste Text" : m === "upload" ? "Upload File" : "Enter URL"}
-            </button>
-          ))}
-        </div>
-
-        {/* Input card */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        {/* Input area */}
+        <div className="max-w-[680px] mx-auto">
           {mode === "paste" && (
-            <div>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Paste your text here to check if it was written by AI..."
-                className="w-full h-48 p-4 border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 placeholder-gray-400"
-              />
-              <div className="flex justify-between items-center mt-2 text-sm text-gray-500">
-                <span>{text.length.toLocaleString()} characters</span>
-                <span>{text.split(/\s+/).filter(Boolean).length} words</span>
-              </div>
-            </div>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Paste your text here or upload a file..."
+              className="w-full min-h-[180px] p-5 rounded-2xl resize-y text-base focus:outline-none transition-shadow"
+              style={{
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-subtle)",
+                color: "var(--text-primary)",
+                fontFamily: "inherit",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "var(--border-focus)";
+                e.currentTarget.style.boxShadow = "0 0 0 3px rgba(108,92,231,0.15)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "var(--border-subtle)";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            />
           )}
 
           {mode === "upload" && (
@@ -132,25 +126,27 @@ export default function Home() {
               onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleFileDrop}
-              className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-                dragActive ? "border-indigo-500 bg-indigo-50" : "border-gray-300 hover:border-gray-400"
-              }`}
+              className="min-h-[180px] rounded-2xl p-12 text-center transition-colors"
+              style={{
+                background: "var(--bg-input)",
+                border: dragActive ? "2px dashed var(--accent-action)" : "2px dashed var(--border-subtle)",
+              }}
             >
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mx-auto mb-4">
-                <path d="M24 8v24M16 16l8-8 8 8" stroke="#9CA3AF" strokeWidth="2.5"/>
-                <path d="M8 32v8h32v-8" stroke="#9CA3AF" strokeWidth="2.5"/>
+                <path d="M24 8v24M16 16l8-8 8 8" stroke="var(--text-secondary)" strokeWidth="2.5"/>
+                <path d="M8 32v8h32v-8" stroke="var(--text-secondary)" strokeWidth="2.5"/>
               </svg>
-              <p className="text-gray-600 mb-2">
+              <p style={{ color: "var(--text-secondary)" }} className="mb-2">
                 Drag and drop a text file here, or{" "}
-                <label className="text-indigo-600 cursor-pointer hover:text-indigo-700 font-medium">
+                <label className="cursor-pointer font-medium" style={{ color: "var(--accent-action)" }}>
                   browse
                   <input type="file" accept=".txt,.md" className="hidden" onChange={handleFileInput} />
                 </label>
               </p>
-              <p className="text-sm text-gray-400">Supports .txt and .md files</p>
+              <p className="text-sm" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>Supports .txt and .md files</p>
               {text && (
-                <div className="mt-4 p-3 bg-green-50 rounded-lg text-green-700 text-sm">
-                  File loaded ({text.length.toLocaleString()} characters). Click Analyze to proceed.
+                <div className="mt-4 p-3 rounded-lg text-sm" style={{ background: "rgba(16,185,129,0.1)", color: "var(--accent-human)" }}>
+                  File loaded ({text.length.toLocaleString()} characters). Click Analyse to proceed.
                 </div>
               )}
             </div>
@@ -163,38 +159,120 @@ export default function Home() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com/article"
-                className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900 placeholder-gray-400"
+                className="w-full p-5 rounded-2xl text-base focus:outline-none transition-shadow"
+                style={{
+                  background: "var(--bg-input)",
+                  border: "1px solid var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-focus)";
+                  e.currentTarget.style.boxShadow = "0 0 0 3px rgba(108,92,231,0.15)";
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-subtle)";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
               />
-              <p className="mt-2 text-sm text-gray-500">Enter a URL to extract and analyze the text content</p>
+              <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                Enter a URL to extract and analyze the text content
+              </p>
             </div>
           )}
 
+          {/* Tabs */}
+          <div className="flex gap-2 justify-center mt-4">
+            {(["paste", "upload", "url"] as InputMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => { setMode(m); setError(""); }}
+                className="py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  background: mode === m ? "var(--accent-action)" : "transparent",
+                  color: mode === m ? "#fff" : "var(--text-secondary)",
+                }}
+              >
+                {m === "paste" ? "Paste Text" : m === "upload" ? "Upload File" : "Enter URL"}
+              </button>
+            ))}
+          </div>
+
+          {/* Error */}
           {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+            <div className="mt-4 p-3 rounded-lg text-sm" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "var(--accent-ai)" }}>
+              {error}
+            </div>
           )}
 
+          {/* Analyse button */}
           <button
             onClick={handleAnalyze}
             disabled={loading}
-            className="mt-6 w-full py-3 px-6 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="mt-6 mx-auto block w-[280px] h-[56px] rounded-xl text-lg font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              background: "var(--accent-action)",
+            }}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                e.currentTarget.style.background = "var(--accent-action-hover)";
+                e.currentTarget.style.boxShadow = "0 4px 20px rgba(108,92,231,0.4)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "var(--accent-action)";
+              e.currentTarget.style.boxShadow = "none";
+            }}
           >
             {loading ? (
-              <>
+              <span className="flex items-center justify-center gap-2">
                 <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
                   <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" className="opacity-75"/>
                 </svg>
-                Analyzing...
-              </>
+                Analysing...
+              </span>
             ) : (
-              "Analyze Content"
+              "Analyse Text"
             )}
           </button>
         </div>
+
+        {/* Feature cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 max-w-[1200px]">
+          {[
+            { title: "AI Detection", desc: "Detect AI-generated content with 98% accuracy using advanced analysis.", icon: (
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="24" r="18" stroke="var(--accent-action)" strokeWidth="3"/>
+                <path d="M24 12v12l8 4" stroke="var(--accent-action)" strokeWidth="3" strokeLinecap="round"/>
+              </svg>
+            )},
+            { title: "Smart Rewriting", desc: "Preserve meaning while making your text sound naturally human.", icon: (
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <path d="M8 36l8-8 6 6 10-14 8 8" stroke="var(--accent-action)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )},
+            { title: "Privacy First", desc: "Your data is never stored. All analysis happens in real-time.", icon: (
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <path d="M24 4L8 12v12c0 11 16 20 16 20s16-9 16-20V12L24 4z" stroke="var(--accent-action)" strokeWidth="3" fill="none"/>
+                <path d="M18 24l4 4 8-8" stroke="var(--accent-action)" strokeWidth="3" strokeLinecap="round"/>
+              </svg>
+            )},
+          ].map((card) => (
+            <div
+              key={card.title}
+              className="p-6 rounded-xl transition-transform hover:-translate-y-0.5"
+              style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="mb-4">{card.icon}</div>
+              <h3 className="text-base font-semibold text-white mb-2">{card.title}</h3>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{card.desc}</p>
+            </div>
+          ))}
+        </div>
       </main>
 
-      <footer className="border-t border-gray-200 py-4 text-center text-sm text-gray-500">
-        AI Content Authenticity Detector
+      <footer className="py-4 text-center text-sm" style={{ color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)" }}>
+        Humaniser — AI Content Authenticity Detector
       </footer>
     </div>
   );
