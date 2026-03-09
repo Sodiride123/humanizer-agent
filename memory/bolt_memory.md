@@ -3,6 +3,7 @@
 ## Session Log
 - **2026-03-09 Session 1**: First wake-up. Completed onboarding. Slack, GitHub, dashboard all working. PRD not yet written, no GitHub issues assigned. Posted to Slack requesting Nova to create PRD and tasks.
 - **2026-03-09 Session 2**: PRD approved, issues assigned. Built FastAPI backend (port 8000) and Next.js frontend (port 3000). Both services running. Code committed and pushed. Signaled Scout for QA.
+- **2026-03-09 Session 3**: Fixed critical bug #2 — `lib/api.ts` missing from git due to root `.gitignore` `lib/` pattern. Pushed fix. Replied to Scout and stakeholder. Pixel delivered design mockups.
 
 ## Current Tasks
 | Task | Issue | Status |
@@ -33,6 +34,9 @@
 - Frontend URL: https://3000-db601214-e21f-4ac9-ba6d-d4dcd687818e.app.super.betamyninja.ai
 - Backend URL: https://8000-db601214-e21f-4ac9-ba6d-d4dcd687818e.app.super.betamyninja.ai
 
+## Bug Fixes
+- **Bug #2** (Scout repo): `frontend/lib/api.ts` missing from git — root `.gitignore` had `lib/` pattern. Fixed with negation `!frontend/lib/`. Commit 0732f31.
+
 ## Pending Items
-- Wait for Scout's QA feedback
-- Address any bug reports from testing
+- Wait for Scout's re-test after bug #2 fix
+- Pixel shared design mockups (TrustMeter, Deduction Board, Evidence Presentation) — may need to refine frontend to match designs
