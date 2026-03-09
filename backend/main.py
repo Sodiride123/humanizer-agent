@@ -37,6 +37,10 @@ class TextAnalysisRequest(BaseModel):
 class URLExtractRequest(BaseModel):
     url: str
 
+class HumanizeRequest(BaseModel):
+    text: str = Field(..., min_length=10, max_length=50000)
+    result_id: Optional[str] = None
+
 class SentenceResult(BaseModel):
     text: str
     score: float
@@ -214,6 +218,76 @@ def get_result(result_id: str):
     if result_id not in results_store:
         raise HTTPException(status_code=404, detail="Result not found")
     return results_store[result_id]
+
+
+# --- Humanize ---
+
+HUMANIZE_PROMPT = """You are a writing assistant. Your job is to rewrite AI-generated sentences so they sound more natural and human-written.
+
+Rules:
+- ONLY rewrite the sentences marked as AI-generated below
+- Preserve the original meaning and tone
+- Make the text sound like a real person wrote it — use natural phrasing, vary sentence length, add subtle personality
+- Do NOT change sentences marked as human-written — keep them exactly as-is
+- Return the FULL text with the rewritten sentences in place
+
+Return a JSON object with this exact structure:
+{
+  "humanized_text": "the full text with AI sentences rewritten",
+  "changes": [
+    {"original": "the original AI sentence", "rewritten": "the humanized version"}
+  ]
+}
+
+Only include sentences that were actually changed in the "changes" array.
+
+SENTENCES AND THEIR LABELS:
+"""
+
+
+@app.post("/api/humanize")
+async def humanize_text(request: HumanizeRequest):
+    """Rewrite AI-flagged sentences to sound more human."""
+    # Get or create analysis
+    analysis = None
+    if request.result_id and request.result_id in results_store:
+        analysis = results_store[request.result_id]
+    else:
+        # Analyze the text first
+        analysis_result = await analyze_text(request.text)
+        analysis = analysis_result.model_dump()
+
+    # Build the prompt with labeled sentences
+    sentences_info = ""
+    for s in analysis.get("sentences", []):
+        label_tag = "AI-GENERATED" if s["label"] == "ai" else "HUMAN-WRITTEN"
+        sentences_info += f"[{label_tag}] {s['text']}\n"
+
+    prompt = HUMANIZE_PROMPT + sentences_info
+
+    try:
+        result = chat_json(prompt, model="ninja-standard")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Humanization failed: {str(e)}")
+
+    if not result or "humanized_text" not in result:
+        raise HTTPException(status_code=500, detail="Invalid humanization response")
+
+    humanized_text = result.get("humanized_text", request.text)
+    changes = result.get("changes", [])
+
+    response = {
+        "original": request.text,
+        "humanized": humanized_text,
+        "changes": changes,
+        "result_id": analysis.get("id", ""),
+    }
+
+    # Store alongside original
+    store_key = f"humanized-{analysis.get('id', '')}"
+    results_store[store_key] = response
+
+    return response
 
 
 if __name__ == "__main__":

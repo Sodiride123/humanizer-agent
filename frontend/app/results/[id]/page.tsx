@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getResult, AnalysisResult, SentenceResult } from "@/lib/api";
+import {
+  getResult,
+  humanizeText,
+  AnalysisResult,
+  SentenceResult,
+  HumanizeResult,
+} from "@/lib/api";
 
 function getGaugeColor(score: number): string {
   if (score >= 60) return "#ef4444";
@@ -59,6 +65,11 @@ export default function ResultsPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [humanizing, setHumanizing] = useState(false);
+  const [humanized, setHumanized] = useState<HumanizeResult | null>(null);
+  const [humanizeError, setHumanizeError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
     const id = params.id as string;
@@ -73,6 +84,30 @@ export default function ResultsPage() {
       .catch(() => setError("Result not found"))
       .finally(() => setLoading(false));
   }, [params.id]);
+
+  const handleHumanize = async () => {
+    if (!result) return;
+    setHumanizeError("");
+    setHumanizing(true);
+    try {
+      const originalText = result.sentences.map((s) => s.text).join(" ");
+      const res = await humanizeText(originalText, result.id);
+      setHumanized(res);
+    } catch (e) {
+      setHumanizeError(
+        e instanceof Error ? e.message : "Humanization failed"
+      );
+    } finally {
+      setHumanizing(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!humanized) return;
+    await navigator.clipboard.writeText(humanized.humanized);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   if (loading) {
     return (
@@ -230,24 +265,131 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* Humanise CTA */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => router.push("/")}
-            className="w-full max-w-[480px] h-[60px] rounded-xl text-xl font-semibold text-white transition-all flex items-center justify-center gap-2 mx-auto"
-            style={{ background: "var(--accent-action)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = "0 4px 24px rgba(108,92,231,0.5)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = "none";
-            }}
-          >
-            Humanise This Text
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M6 10h8M11 6l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </button>
+        {/* Humanise Section */}
+        <div className="mt-8">
+          {!humanized ? (
+            <div className="text-center">
+              <button
+                onClick={handleHumanize}
+                disabled={humanizing}
+                className="w-full max-w-[480px] h-[60px] rounded-xl text-xl font-semibold text-white transition-all flex items-center justify-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: "var(--accent-action)" }}
+                onMouseEnter={(e) => {
+                  if (!humanizing) e.currentTarget.style.boxShadow = "0 4px 24px rgba(108,92,231,0.5)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                {humanizing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
+                      <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" className="opacity-75"/>
+                    </svg>
+                    Humanising...
+                  </span>
+                ) : (
+                  <>
+                    Humanise This Text
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                      <path d="M6 10h8M11 6l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </>
+                )}
+              </button>
+              {humanizeError && (
+                <div className="mt-4 p-3 rounded-lg text-sm max-w-[480px] mx-auto" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "var(--accent-ai)" }}>
+                  {humanizeError}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl p-6" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)" }}>
+              {/* Header with toggle and copy */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Humanised Text</h3>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowOriginal(!showOriginal)}
+                    className="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    style={{
+                      background: showOriginal ? "rgba(108,92,231,0.2)" : "transparent",
+                      color: "var(--accent-action)",
+                      border: "1px solid rgba(108,92,231,0.3)",
+                    }}
+                  >
+                    {showOriginal ? "Show Humanised" : "Show Original"}
+                  </button>
+                  <button
+                    onClick={handleCopy}
+                    className="text-sm font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+                    style={{
+                      background: copied ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.05)",
+                      color: copied ? "var(--accent-human)" : "var(--text-secondary)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    {copied ? (
+                      <>
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M3 7l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <rect x="4" y="4" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                          <path d="M10 4V2.5A1.5 1.5 0 008.5 1h-6A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4" stroke="currentColor" strokeWidth="1.5"/>
+                        </svg>
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Text display */}
+              <div className="p-4 rounded-lg text-sm leading-relaxed text-white" style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}>
+                {showOriginal ? humanized.original : humanized.humanized}
+              </div>
+
+              {/* Changes list */}
+              {humanized.changes.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold text-white mb-2">
+                    Changes Made ({humanized.changes.length})
+                  </h4>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {humanized.changes.map((change, i) => (
+                      <div key={i} className="p-3 rounded-lg text-sm" style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}>
+                        <div className="flex items-start gap-2 mb-2">
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "var(--accent-ai)" }}>Before</span>
+                          <p style={{ color: "var(--text-secondary)" }}>{change.original}</p>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "var(--accent-human)" }}>After</span>
+                          <p className="text-white">{change.rewritten}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* New Analysis button */}
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => router.push("/")}
+                  className="text-sm font-medium"
+                  style={{ color: "var(--accent-action)" }}
+                >
+                  Run New Analysis
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

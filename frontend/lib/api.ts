@@ -54,3 +54,33 @@ export async function getResult(id: string): Promise<AnalysisResult> {
   }
   return res.json();
 }
+
+export interface HumanizeChange {
+  original: string;
+  rewritten: string;
+}
+
+export interface HumanizeResult {
+  original: string;
+  humanized: string;
+  changes: HumanizeChange[];
+  result_id: string;
+}
+
+export async function humanizeText(
+  text: string,
+  resultId?: string
+): Promise<HumanizeResult> {
+  const res = await fetch(`${getApiBaseUrl()}/api/humanize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, result_id: resultId }),
+  });
+  if (!res.ok) {
+    const err = await res
+      .json()
+      .catch(() => ({ detail: "Humanization failed" }));
+    throw new Error(err.detail || "Humanization failed");
+  }
+  return res.json();
+}
