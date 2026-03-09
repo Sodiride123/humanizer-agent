@@ -276,6 +276,15 @@ async def humanize_text(request: HumanizeRequest):
     humanized_text = result.get("humanized_text", request.text)
     changes = result.get("changes", [])
 
+    # Fallback: if LLM returned changes but didn't apply them in humanized_text,
+    # reconstruct the humanized text by applying the changes manually
+    if changes and humanized_text == request.text:
+        patched = request.text
+        for change in changes:
+            if change.get("original") and change.get("rewritten"):
+                patched = patched.replace(change["original"], change["rewritten"])
+        humanized_text = patched
+
     response = {
         "original": request.text,
         "humanized": humanized_text,
