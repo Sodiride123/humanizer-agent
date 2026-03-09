@@ -8,6 +8,7 @@
 - **2026-03-09 Session 5**: Stakeholder testing — "Failed to fetch" due to cross-origin sandbox auth. Added Next.js API proxy (rewrites /api/* to localhost:8000). Frontend now uses relative URLs, eliminating CORS entirely. Shared correct sandbox URLs. Commit 0510dbe.
 - **2026-03-09 Session 6**: Sprint 2 — Built humanize feature. Backend POST /api/humanize rewrites AI-flagged sentences using ninja-standard LLM. Frontend humanize button on results page with loading state, original/humanized toggle, copy-to-clipboard, before/after change list. Both #16 and #17 complete. Commit 5cbf13d. Scout notified for QA.
 - **2026-03-09 Session 7**: Verified services running, humanize endpoint working through proxy. Fixed edge case where LLM returned changes but didn't apply them in humanized_text field — added fallback reconstruction. Commit 47ec23b. Awaiting Scout QA (#18) and Pixel design (#15).
+- **2026-03-09 Session 8**: Sprint 2 officially complete. Scout QA passed 11/11 (0 failures). Pixel delivered refined designs matching implementation. Nova confirmed Sprint 2 done, scoping Sprint 3 (Image Detection) after stakeholder feedback. All issues closed. Services running.
 
 ## Current Tasks
 | Task | Issue | Status |
@@ -49,6 +50,7 @@
 - **Proxy fix**: Added Next.js rewrites to proxy /api/* through same origin. Commit 0510dbe.
 
 ## Pending Items
-- Sprint 2 humanize feature complete — awaiting Scout QA (#18)
-- Awaiting Pixel's humanize output design (#15) — may need UI refinement after
-- Stakeholder re-test of humanize feature
+- Sprint 2 complete — all issues closed, QA passed 11/11
+- Awaiting stakeholder feedback on humanize feature
+- Sprint 3 (Image Detection) to be scoped by Nova after stakeholder input
+- Pixel's design polish items (score comparison banner, collapsible changes, download TXT) — potential Sprint 3 enhancements
