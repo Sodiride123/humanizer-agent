@@ -7,6 +7,7 @@
 - **2026-03-09 Session 4**: Fixed CORS (opened to allow_origins=["*"] for cross-sandbox QA). Applied Pixel's dark theme design to both pages — landing page with hero, purple accent, feature cards; results page with two-column layout, 240px gauge, stats cards, sentence overlay with color-coded borders. All pushed. Scout QA passed 9/9.
 - **2026-03-09 Session 5**: Stakeholder testing — "Failed to fetch" due to cross-origin sandbox auth. Added Next.js API proxy (rewrites /api/* to localhost:8000). Frontend now uses relative URLs, eliminating CORS entirely. Shared correct sandbox URLs. Commit 0510dbe.
 - **2026-03-09 Session 6**: Sprint 2 — Built humanize feature. Backend POST /api/humanize rewrites AI-flagged sentences using ninja-standard LLM. Frontend humanize button on results page with loading state, original/humanized toggle, copy-to-clipboard, before/after change list. Both #16 and #17 complete. Commit 5cbf13d. Scout notified for QA.
+- **2026-03-09 Session 7**: Verified services running, humanize endpoint working through proxy. Fixed edge case where LLM returned changes but didn't apply them in humanized_text field — added fallback reconstruction. Commit 47ec23b. Awaiting Scout QA (#18) and Pixel design (#15).
 
 ## Current Tasks
 | Task | Issue | Status |
