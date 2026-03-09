@@ -6,31 +6,35 @@
 - **2026-03-09 Session 3**: Fixed critical bug #2 — `lib/api.ts` missing from git due to root `.gitignore` `lib/` pattern. Pushed fix. Replied to Scout and stakeholder. Pixel delivered design mockups.
 - **2026-03-09 Session 4**: Fixed CORS (opened to allow_origins=["*"] for cross-sandbox QA). Applied Pixel's dark theme design to both pages — landing page with hero, purple accent, feature cards; results page with two-column layout, 240px gauge, stats cards, sentence overlay with color-coded borders. All pushed. Scout QA passed 9/9.
 - **2026-03-09 Session 5**: Stakeholder testing — "Failed to fetch" due to cross-origin sandbox auth. Added Next.js API proxy (rewrites /api/* to localhost:8000). Frontend now uses relative URLs, eliminating CORS entirely. Shared correct sandbox URLs. Commit 0510dbe.
+- **2026-03-09 Session 6**: Sprint 2 — Built humanize feature. Backend POST /api/humanize rewrites AI-flagged sentences using ninja-standard LLM. Frontend humanize button on results page with loading state, original/humanized toggle, copy-to-clipboard, before/after change list. Both #16 and #17 complete. Commit 5cbf13d. Scout notified for QA.
 
 ## Current Tasks
 | Task | Issue | Status |
 |------|-------|--------|
 | FastAPI Backend - Text Analysis API | #12 (Nova repo) | Complete |
 | Next.js Frontend - Input & Results | #10 (Nova repo) | Complete |
+| Backend: POST /api/humanize endpoint | #16 (Nova repo) | Complete |
+| Frontend: Humanize button + output | #17 (Nova repo) | Complete |
 
 ## Technical Decisions
 - Using `ninja-standard` model for text analysis (API key restricted to ninja-cline models)
+- Using `ninja-standard` model for humanization (same restriction)
 - SessionStorage for passing analysis results to results page (avoids extra API call)
-- In-memory dict for results store (MVP - no DB needed for Sprint 1)
+- In-memory dict for results store (MVP - no DB needed)
 - CORS: allow_origins=["*"] for MVP (cross-sandbox testing requires it)
 - Next.js rewrites proxy /api/* to localhost:8000 — eliminates cross-origin issues for end users
 
 ## Architecture
 ### Backend (port 8000)
 - FastAPI app at `backend/main.py`
-- Endpoints: POST /api/analyze/text, POST /api/extract-url, GET /api/results/{id}, GET /api/health
-- Uses utils/chat.py for LLM-powered analysis
+- Endpoints: POST /api/analyze/text, POST /api/extract-url, POST /api/humanize, GET /api/results/{id}, GET /api/health
+- Uses utils/chat.py for LLM-powered analysis and humanization
 
 ### Frontend (port 3000)
 - Next.js + TypeScript + Tailwind CSS
 - next.config.ts: rewrites /api/* to localhost:8000/api/*
 - lib/api.ts: relative URLs (empty base) — all API calls go through same origin
-- Pages: / (input with 3 modes), /results/[id] (score + overlay + summary)
+- Pages: / (input with 3 modes), /results/[id] (score + overlay + summary + humanize)
 
 ## Environment
 - Sandbox ID: db601214-e21f-4ac9-ba6d-d4dcd687818e
@@ -44,5 +48,6 @@
 - **Proxy fix**: Added Next.js rewrites to proxy /api/* through same origin. Commit 0510dbe.
 
 ## Pending Items
-- Stakeholder testing the live app — waiting for feedback
-- Sprint 1 MVP complete — ready for Sprint 2 planning (Image Detection per Nova)
+- Sprint 2 humanize feature complete — awaiting Scout QA (#18)
+- Awaiting Pixel's humanize output design (#15) — may need UI refinement after
+- Stakeholder re-test of humanize feature
