@@ -16,25 +16,11 @@ from utils.chat import chat_json, chat
 
 app = FastAPI(title="AI Content Authenticity Detector", version="1.0.0")
 
-# CORS setup from sandbox metadata
-def get_allowed_origins():
-    try:
-        with open("/dev/shm/sandbox_metadata.json") as f:
-            meta = json.load(f)
-        sandbox_id = meta["thread_id"]
-        stage = meta["environment"]
-        base = f"{sandbox_id}.app.super.{stage}myninja.ai"
-        return [
-            f"https://3000-{base}",
-            f"https://8085-{base}",
-        ]
-    except Exception:
-        return ["*"]
-
+# CORS setup — allow all origins for MVP (cross-sandbox testing requires it)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_allowed_origins(),
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
