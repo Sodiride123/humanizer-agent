@@ -70,6 +70,8 @@ export default function ResultsPage() {
   const [humanizeError, setHumanizeError] = useState("");
   const [copied, setCopied] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [iteration, setIteration] = useState(1);
+  const [scoreHistory, setScoreHistory] = useState<number[]>([]);
 
   useEffect(() => {
     const id = params.id as string;
@@ -85,14 +87,25 @@ export default function ResultsPage() {
       .finally(() => setLoading(false));
   }, [params.id]);
 
-  const handleHumanize = async () => {
+  const handleHumanize = async (currentIteration?: number) => {
     if (!result) return;
+    const iter = currentIteration || iteration;
     setHumanizeError("");
     setHumanizing(true);
     try {
-      const originalText = result.sentences.map((s) => s.text).join(" ");
-      const res = await humanizeText(originalText, result.id);
+      // First iteration: use original text. Subsequent: use previous humanized text.
+      const textToHumanize = iter > 1 && humanized
+        ? humanized.humanized
+        : result.sentences.map((s) => s.text).join(" ");
+      const res = await humanizeText(textToHumanize, iter === 1 ? result.id : undefined, iter);
       setHumanized(res);
+      // Build score history
+      if (iter === 1) {
+        setScoreHistory([res.original_score || 0, res.new_score || 0]);
+      } else {
+        setScoreHistory(prev => [...prev, res.new_score || 0]);
+      }
+      setIteration(iter + 1);
     } catch (e) {
       setHumanizeError(
         e instanceof Error ? e.message : "Humanization failed"
@@ -270,7 +283,7 @@ export default function ResultsPage() {
           {!humanized ? (
             <div className="text-center">
               <button
-                onClick={handleHumanize}
+                onClick={() => handleHumanize(1)}
                 disabled={humanizing}
                 className="w-full max-w-[480px] h-[60px] rounded-xl text-xl font-semibold text-white transition-all flex items-center justify-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: "var(--accent-action)" }}
@@ -306,27 +319,49 @@ export default function ResultsPage() {
             </div>
           ) : (
             <div className="rounded-xl p-6" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)" }}>
-              {/* Score Comparison Banner */}
-              {humanized.original_score !== undefined && humanized.new_score !== undefined && (
-                <div className="mb-4 p-4 rounded-lg flex items-center justify-between" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
-                  <div className="flex items-center gap-4">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold" style={{ color: "var(--accent-ai)" }}>{humanized.original_score}%</div>
-                      <div className="text-xs" style={{ color: "var(--text-secondary)" }}>Before</div>
+              {/* Score Progression Banner */}
+              {humanized.new_score !== undefined && (
+                <div className="mb-4 p-4 rounded-lg" style={{
+                  background: humanized.new_score < 15 ? "rgba(16,185,129,0.08)" : "rgba(108,92,231,0.08)",
+                  border: `1px solid ${humanized.new_score < 15 ? "rgba(16,185,129,0.2)" : "rgba(108,92,231,0.2)"}`,
+                }}>
+                  <div className="flex items-center justify-between mb-2">
+                    {/* Score progression */}
+                    <div className="flex items-center gap-2">
+                      {scoreHistory.map((score, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          {i > 0 && (
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <path d="M3 8h10M10 5l3 3-3 3" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round"/>
+                            </svg>
+                          )}
+                          <span className="text-lg font-bold" style={{
+                            color: score < 15 ? "var(--accent-human)" : score < 40 ? "var(--accent-warning)" : "var(--accent-ai)",
+                          }}>
+                            {score}%
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                      <path d="M5 12h14M15 8l4 4-4 4" stroke="var(--accent-human)" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold" style={{ color: "var(--accent-human)" }}>{humanized.new_score}%</div>
-                      <div className="text-xs" style={{ color: "var(--text-secondary)" }}>After</div>
+                    {/* Status badge */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Round {iteration - 1}
+                      </span>
+                      {humanized.new_score < 15 ? (
+                        <span className="text-sm font-medium px-3 py-1 rounded-full flex items-center gap-1" style={{ background: "rgba(16,185,129,0.15)", color: "var(--accent-human)" }}>
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M3 7l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                          </svg>
+                          Looks Human!
+                        </span>
+                      ) : (
+                        <span className="text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(108,92,231,0.15)", color: "var(--accent-action)" }}>
+                          {humanized.improvement}pt drop
+                        </span>
+                      )}
                     </div>
                   </div>
-                  {humanized.improvement !== undefined && humanized.improvement > 0 && (
-                    <div className="text-sm font-medium px-3 py-1 rounded-full" style={{ background: "rgba(16,185,129,0.15)", color: "var(--accent-human)" }}>
-                      {humanized.improvement}% less AI-detectable
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -396,20 +431,37 @@ export default function ResultsPage() {
                           <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "var(--accent-human)" }}>After</span>
                           <p className="text-white">{change.rewritten}</p>
                         </div>
+                        {change.technique && (
+                          <div className="mt-1.5 ml-8">
+                            <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(108,92,231,0.1)", color: "var(--accent-action)" }}>
+                              {change.technique.replace(/_/g, " ")}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* New Analysis button */}
-              <div className="mt-4 text-center">
+              {/* Action buttons */}
+              <div className="mt-4 flex items-center justify-center gap-4">
+                {humanized.new_score !== undefined && humanized.new_score >= 15 && iteration <= 3 && (
+                  <button
+                    onClick={() => handleHumanize(iteration)}
+                    disabled={humanizing}
+                    className="text-sm font-semibold px-4 py-2 rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    style={{ background: "var(--accent-action)", color: "white" }}
+                  >
+                    {humanizing ? "Humanising..." : `Humanise Again (Round ${iteration})`}
+                  </button>
+                )}
                 <button
                   onClick={() => router.push("/")}
                   className="text-sm font-medium"
-                  style={{ color: "var(--accent-action)" }}
+                  style={{ color: "var(--text-secondary)" }}
                 >
-                  Run New Analysis
+                  Try Another Text
                 </button>
               </div>
             </div>

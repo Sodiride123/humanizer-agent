@@ -58,6 +58,7 @@ export async function getResult(id: string): Promise<AnalysisResult> {
 export interface HumanizeChange {
   original: string;
   rewritten: string;
+  technique?: string;
 }
 
 export interface HumanizeResult {
@@ -68,16 +69,18 @@ export interface HumanizeResult {
   original_score?: number;
   new_score?: number;
   improvement?: number;
+  iteration?: number;
 }
 
 export async function humanizeText(
   text: string,
-  resultId?: string
+  resultId?: string,
+  iteration?: number
 ): Promise<HumanizeResult> {
   const res = await fetch(`${getApiBaseUrl()}/api/humanize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, result_id: resultId }),
+    body: JSON.stringify({ text, result_id: resultId, iteration: iteration || 1 }),
   });
   if (!res.ok) {
     const err = await res

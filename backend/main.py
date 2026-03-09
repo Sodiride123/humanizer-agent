@@ -40,6 +40,7 @@ class URLExtractRequest(BaseModel):
 class HumanizeRequest(BaseModel):
     text: str = Field(..., min_length=10, max_length=50000)
     result_id: Optional[str] = None
+    iteration: int = Field(default=1, ge=1, le=5)
 
 class SentenceResult(BaseModel):
     text: str
@@ -222,31 +223,57 @@ def get_result(result_id: str):
 
 # --- Humanize ---
 
-HUMANIZE_PROMPT = """You are an expert ghostwriter who makes AI-generated text sound authentically human. Your rewrites should be UNDETECTABLE by AI content detectors.
+HUMANIZE_PROMPT_BASE = """You are an expert ghostwriter who makes AI-generated text sound authentically human. Your rewrites MUST be UNDETECTABLE by AI content detectors. The goal is to score BELOW 15% on AI detection.
 
 REWRITING RULES:
 1. ONLY rewrite sentences marked [AI-GENERATED] — keep [HUMAN-WRITTEN] sentences exactly as-is
-2. Preserve the original meaning but completely rephrase the structure
+2. Preserve the original meaning but COMPLETELY rephrase — don't just swap synonyms
 
-CRITICAL TECHNIQUES — apply ALL of these:
-- Use contractions naturally (it's, don't, we're, that's, won't, I'd)
-- Replace formal transitions: "Furthermore" → "Plus", "Moreover" → "On top of that", "Additionally" → "Also", "It is important to note" → drop it entirely or "Worth noting:"
-- Vary sentence length dramatically — mix short punchy sentences (5-8 words) with longer ones
-- Use casual connectors: "honestly", "look", "the thing is", "basically"
-- Start some sentences with "And" or "But" — real humans do this
-- Use specific/concrete language over vague abstractions ("a lot of industries" → "healthcare, finance, and education")
-- Break up long compound sentences into 2-3 shorter ones
-- Occasionally use dashes — like this — for asides instead of parentheses
-- Drop unnecessary hedging phrases ("It should be noted that", "It is worth mentioning")
-- Use active voice over passive voice wherever possible
+CRITICAL TECHNIQUES — apply ALL of these aggressively:
+- Use contractions everywhere (it's, don't, we're, that's, won't, I'd, can't, shouldn't)
+- ELIMINATE all formal transitions: "Furthermore" "Moreover" "Additionally" "In conclusion" "It is important to note" — replace with nothing or casual connectors
+- Vary sentence length DRAMATICALLY — mix very short (3-6 words) with medium ones. No uniform length.
+- Use casual/conversational tone: "honestly", "look", "the thing is", "basically", "pretty much"
+- Start sentences with "And", "But", "So", "Look," — real humans do this constantly
+- Use specific/concrete examples instead of vague generalities
+- Break compound sentences into 2-3 shorter ones
+- Use dashes — like this — and ellipses for natural pauses
+- Drop ALL hedging phrases ("It should be noted", "It is worth mentioning", "One could argue")
+- Use active voice always. Never passive.
+- Add occasional sentence fragments. For emphasis. Like this.
+- Use rhetorical questions occasionally
+- Include first-person perspective where appropriate ("I think", "from what I've seen")
+"""
 
+HUMANIZE_ITERATION_EXTRAS = {
+    2: """
+ROUND 2 — PREVIOUS REWRITE STILL DETECTED AS AI. Be MORE aggressive:
+- Make sentences even shorter and choppier
+- Add more personal opinion markers ("I'd say", "in my experience")
+- Use even more informal phrasing
+- Split paragraphs into shorter chunks
+- Add a conversational aside or two
+""",
+    3: """
+ROUND 3 — TEXT STILL READS AS AI AFTER 2 ROUNDS. Maximum human voice:
+- Rewrite from scratch in a completely different voice
+- Use colloquial language and slang where appropriate
+- Add personal anecdotes or hypothetical examples
+- Make it sound like a blog post or casual email, not an essay
+- Every sentence should feel like someone talking, not writing
+""",
+}
+
+HUMANIZE_PROMPT_FORMAT = """
 Return a JSON object with this exact structure:
 {
   "humanized_text": "the full text with AI sentences rewritten",
   "changes": [
-    {"original": "the original AI sentence", "rewritten": "the humanized version"}
+    {"original": "the original AI sentence", "rewritten": "the humanized version", "technique": "technique_name"}
   ]
 }
+
+Technique names to use: "contraction_injection", "transition_removal", "sentence_splitting", "casual_connector", "active_voice", "specificity", "fragment_emphasis", "rhetorical_question", "personal_voice", "structure_variation"
 
 Only include sentences that were actually changed in the "changes" array.
 
@@ -272,7 +299,12 @@ async def humanize_text(request: HumanizeRequest):
         label_tag = "AI-GENERATED" if s["label"] == "ai" else "HUMAN-WRITTEN"
         sentences_info += f"[{label_tag}] {s['text']}\n"
 
-    prompt = HUMANIZE_PROMPT + sentences_info
+    # Build iteration-aware prompt
+    prompt = HUMANIZE_PROMPT_BASE
+    iteration_extra = HUMANIZE_ITERATION_EXTRAS.get(min(request.iteration, 3))
+    if iteration_extra:
+        prompt += iteration_extra
+    prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
     try:
         result = chat_json(prompt, model="ninja-standard")
@@ -312,6 +344,7 @@ async def humanize_text(request: HumanizeRequest):
         "original_score": original_score,
         "new_score": new_score,
         "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
+        "iteration": request.iteration,
     }
 
     # Store alongside original
