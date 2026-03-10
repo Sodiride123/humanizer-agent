@@ -242,8 +242,57 @@ def chat_json(
 
     try:
         return json.loads(text)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
+        pass
+
+    # Second attempt: clean invalid control characters that LLMs sometimes embed
+    # inside JSON string values (literal newlines, tabs, carriage returns, etc.)
+    try:
+        cleaned = _clean_json_string(text)
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, Exception) as e:
         raise ValueError(f"Response is not valid JSON: {e}\nResponse: {text[:500]}")
+
+
+def _clean_json_string(text: str) -> str:
+    """
+    Clean a JSON string that may contain invalid literal control characters
+    (e.g. raw newlines / tabs inside string values) by re-encoding them as
+    proper JSON escape sequences.
+
+    Strategy: walk the string character by character, tracking whether we are
+    inside a JSON string literal. When inside a string, replace any bare
+    control character (0x00-0x1F) that is NOT already part of a valid escape
+    sequence with its \\uXXXX equivalent.
+    """
+    result = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            if ch == '\\':
+                # Pass the escape sequence through unchanged
+                result.append(ch)
+                if i + 1 < len(text):
+                    i += 1
+                    result.append(text[i])
+            elif ch == '"':
+                in_string = False
+                result.append(ch)
+            elif ord(ch) < 0x20:
+                # Bare control character inside a string — escape it
+                result.append(f'\\u{ord(ch):04x}')
+            else:
+                result.append(ch)
+        else:
+            if ch == '"':
+                in_string = True
+                result.append(ch)
+            else:
+                result.append(ch)
+        i += 1
+    return ''.join(result)
 
 
 # ---------------------------------------------------------------------------

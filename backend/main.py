@@ -14,9 +14,9 @@ import requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.chat import chat_json, chat
 
-app = FastAPI(title="AI Content Authenticity Detector", version="1.0.0")
+app = FastAPI(title="AI Content Authenticity Detector", version="2.0.0")
 
-# CORS setup — allow all origins for MVP (cross-sandbox testing requires it)
+# CORS setup — allow all origins for MVP
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,6 +46,7 @@ class SentenceResult(BaseModel):
     text: str
     score: float
     label: str  # "ai" or "human"
+    patterns: list[str] = []  # which of the 24 patterns were detected
 
 class AnalysisResponse(BaseModel):
     id: str
@@ -55,6 +56,7 @@ class AnalysisResponse(BaseModel):
     summary: str
     input_type: str
     word_count: int
+    patterns_found: list[str] = []  # aggregate list of patterns detected across all sentences
 
 
 # --- Helpers ---
@@ -74,41 +76,87 @@ def get_confidence_label(score: float) -> str:
     else:
         return "Likely Human"
 
-ANALYSIS_PROMPT = """You are an AI content detection expert. Analyze the following text and determine if it was written by AI or a human.
+
+# --- Upgraded Analysis Prompt (incorporates all 24 patterns from blader/humanizer SKILL.md) ---
+
+ANALYSIS_PROMPT = """You are an expert AI content detection system. Analyze the following text and determine if each sentence was written by AI or a human.
 
 For EACH sentence, provide a score from 0-100 where:
 - 0-30 = Likely written by a human
 - 31-60 = Uncertain / mixed signals
 - 61-100 = Likely AI-generated
 
-Consider these signals:
-- Repetitive phrasing or structure
-- Overly formal or generic language
-- Lack of personal anecdotes or specific details
-- Perfect grammar with no colloquialisms
-- Hedging language like "It's important to note"
-- List-heavy or bullet-point-oriented writing
-- Transitions like "Furthermore", "Moreover", "In conclusion"
+You must check for ALL 24 known AI writing patterns (based on Wikipedia's "Signs of AI writing" guide):
 
-Return a JSON object with this exact structure:
+CONTENT PATTERNS:
+1. significance_inflation — Puffed-up importance: "marking a pivotal moment", "testament to", "underscores its vital role", "evolving landscape", "setting the stage for", "indelible mark"
+2. notability_namedropping — Listing media outlets without context: "featured in NYT, BBC, FT", "active social media presence"
+3. superficial_ing_analyses — Fake depth via -ing phrases: "symbolizing...", "reflecting...", "showcasing...", "highlighting...", "fostering...", "contributing to..."
+4. promotional_language — Advertisement tone: "nestled within", "breathtaking", "vibrant", "rich cultural heritage", "groundbreaking", "renowned", "must-visit", "stunning", "boasts"
+5. vague_attributions — Weasel words: "Experts believe", "Industry observers note", "Some critics argue", "several sources suggest"
+6. formulaic_challenges — Boilerplate structure: "Despite challenges... continues to thrive", "Despite its X, faces challenges typical of..."
+
+LANGUAGE PATTERNS:
+7. ai_vocabulary — High-frequency AI words: "Additionally", "Moreover", "Furthermore", "delve", "tapestry", "landscape" (abstract), "testament", "underscore", "pivotal", "crucial", "vibrant", "showcase", "foster", "garner", "interplay", "intricate", "align with", "enhance"
+8. copula_avoidance — Avoiding "is/are": "serves as", "stands as", "marks", "represents", "boasts", "features", "offers" used instead of simple "is/has"
+9. negative_parallelisms — "It's not just X, it's Y", "Not only... but also...", "It's not merely X, it's Y"
+10. rule_of_three — Forced triads: "innovation, inspiration, and insights", "streamlining, enhancing, and fostering"
+11. synonym_cycling — Excessive synonym substitution: "protagonist... main character... central figure... hero" all in same passage
+12. false_ranges — "from X to Y" where X and Y aren't on a meaningful scale: "from the Big Bang to dark matter"
+
+STYLE PATTERNS:
+13. em_dash_overuse — Excessive em dashes (—) used for dramatic effect
+14. boldface_overuse — Mechanical bolding of terms: **OKRs**, **KPIs**, **key insight**
+15. inline_header_lists — Bullet points starting with bolded headers: "**Performance:** Performance improved..."
+16. title_case_headings — All Main Words Capitalised In Headings
+17. emojis — Decorative emojis in headings or bullets: 🚀, 💡, ✅
+18. curly_quotes — Curly/smart quotation marks " " instead of straight " "
+
+COMMUNICATION PATTERNS:
+19. chatbot_artifacts — "I hope this helps!", "Let me know if...", "Of course!", "Certainly!", "Here is a..."
+20. cutoff_disclaimers — "As of my last update", "While specific details are limited", "based on available information"
+21. sycophantic_tone — "Great question!", "You're absolutely right!", "Excellent point!"
+
+FILLER AND HEDGING:
+22. filler_phrases — "In order to", "Due to the fact that", "At this point in time", "It is important to note that", "It should be noted"
+23. excessive_hedging — "could potentially possibly", "might have some effect", stacking multiple hedges
+24. generic_conclusions — "The future looks bright", "Exciting times lie ahead", "This represents a major step forward"
+
+For each sentence, list which pattern IDs were detected (use the snake_case names above).
+
+Return a JSON object with this EXACT structure:
 {
   "sentences": [
-    {"text": "the sentence text", "score": 85, "label": "ai"},
-    {"text": "another sentence", "score": 20, "label": "human"}
+    {
+      "text": "the sentence text",
+      "score": 85,
+      "label": "ai",
+      "patterns": ["ai_vocabulary", "significance_inflation"]
+    },
+    {
+      "text": "another sentence",
+      "score": 20,
+      "label": "human",
+      "patterns": []
+    }
   ],
   "overall_score": 72.5,
-  "summary": "A 2-3 sentence plain-language explanation of findings"
+  "patterns_found": ["ai_vocabulary", "significance_inflation", "filler_phrases"],
+  "summary": "A 2-3 sentence plain-language explanation of findings, mentioning the most prominent AI patterns detected."
 }
 
-The "label" field should be "ai" if score >= 50, otherwise "human".
-The "overall_score" should be the weighted average of all sentence scores.
+Rules:
+- "label" = "ai" if score >= 50, otherwise "human"
+- "overall_score" = weighted average of all sentence scores
+- "patterns_found" = deduplicated list of all patterns found across all sentences
+- Be precise: only flag patterns that are genuinely present
 
 TEXT TO ANALYZE:
 """
 
 
 async def analyze_text(text: str) -> AnalysisResponse:
-    """Analyze text for AI content using LLM."""
+    """Analyze text for AI content using LLM with 24-pattern detection."""
     sentences = split_sentences(text)
     if not sentences:
         raise HTTPException(status_code=400, detail="No valid sentences found in input")
@@ -126,14 +174,17 @@ async def analyze_text(text: str) -> AnalysisResponse:
     result_id = str(uuid.uuid4())
     sentence_results = []
     for s in result.get("sentences", []):
+        score = float(s.get("score", 50))
         sentence_results.append(SentenceResult(
             text=s.get("text", ""),
-            score=float(s.get("score", 50)),
-            label=s.get("label", "ai" if float(s.get("score", 50)) >= 50 else "human"),
+            score=score,
+            label=s.get("label", "ai" if score >= 50 else "human"),
+            patterns=s.get("patterns", []),
         ))
 
     overall = float(result.get("overall_score", 50))
     summary = result.get("summary", "Analysis complete.")
+    patterns_found = result.get("patterns_found", [])
 
     response = AnalysisResponse(
         id=result_id,
@@ -143,6 +194,7 @@ async def analyze_text(text: str) -> AnalysisResponse:
         summary=summary,
         input_type="text",
         word_count=len(text.split()),
+        patterns_found=patterns_found,
     )
 
     # Store for later retrieval
@@ -151,11 +203,189 @@ async def analyze_text(text: str) -> AnalysisResponse:
     return response
 
 
-# --- Endpoints ---
+# --- Humanize Prompts (full blader/humanizer SKILL.md logic + iteration support) ---
+
+HUMANIZE_PROMPT_BASE = """You are an expert writing editor. Your job is to remove all signs of AI-generated writing and make the text sound authentically human. You follow the Wikipedia "Signs of AI writing" guide and apply a two-pass rewrite process.
+
+STEP 1 — REWRITE: Fix all 24 AI writing patterns listed below.
+STEP 2 — AUDIT: Ask yourself "What still makes this obviously AI-generated?" then fix those remaining tells.
+
+ONLY rewrite sentences marked [AI-GENERATED]. Keep [HUMAN-WRITTEN] sentences exactly as-is.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART A — REMOVE THESE 24 AI PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONTENT PATTERNS:
+1. SIGNIFICANCE INFLATION — Remove puffed-up importance claims.
+   ✗ "marking a pivotal moment in the evolution of..."
+   ✓ State the plain fact instead.
+
+2. NOTABILITY NAME-DROPPING — Replace vague media lists with specific citations.
+   ✗ "cited in NYT, BBC, FT, and The Hindu"
+   ✓ "In a 2024 NYT interview, she argued..."
+
+3. SUPERFICIAL -ING ANALYSES — Remove or expand fake-depth participial phrases.
+   ✗ "symbolizing..., reflecting..., showcasing..., highlighting..., fostering..."
+   ✓ Remove entirely or replace with a specific sourced fact.
+
+4. PROMOTIONAL LANGUAGE — Use neutral, factual language.
+   ✗ "nestled within the breathtaking region", "vibrant", "rich cultural heritage", "groundbreaking", "stunning"
+   ✓ Plain description with actual facts.
+
+5. VAGUE ATTRIBUTIONS — Replace with specific sources.
+   ✗ "Experts believe", "Industry observers note", "Some critics argue"
+   ✓ Name the actual source or remove.
+
+6. FORMULAIC CHALLENGES — Replace with specific facts.
+   ✗ "Despite challenges... continues to thrive"
+   ✓ Name the actual challenge and what happened.
+
+LANGUAGE PATTERNS:
+7. AI VOCABULARY — Replace these overused AI words:
+   Additionally → Also / drop it | Moreover/Furthermore → drop or use "and" | delve → look at / explore
+   tapestry/landscape (abstract) → be specific | testament → drop it | underscore/highlight → say it directly
+   pivotal/crucial/vital → important, or just state the fact | vibrant → specific description
+   showcase → show | foster → help / support | garner → get / earn | interplay → interaction
+   intricate/intricacies → complex / details | align with → match / fit | enhance → improve
+
+8. COPULA AVOIDANCE — Use simple "is/are/has" instead of elaborate substitutes.
+   ✗ "serves as", "stands as", "marks", "represents", "boasts", "features", "offers"
+   ✓ "is", "has", "are"
+
+9. NEGATIVE PARALLELISMS — State the point directly.
+   ✗ "It's not just about X; it's about Y"
+   ✓ State Y directly.
+
+10. RULE OF THREE — Use the natural number of items, not forced triads.
+    ✗ "innovation, inspiration, and insights"
+    ✓ List only what's actually relevant.
+
+11. SYNONYM CYCLING — Repeat the clearest word rather than cycling synonyms.
+    ✗ "protagonist... main character... central figure... hero" (all in same passage)
+    ✓ "protagonist" (repeated when it's the clearest choice)
+
+12. FALSE RANGES — Replace "from X to Y" with a direct list.
+    ✗ "from the Big Bang to dark matter"
+    ✓ "the Big Bang, star formation, and dark matter"
+
+STYLE PATTERNS:
+13. EM DASH OVERUSE — Replace most em dashes with commas or periods.
+    ✗ "institutions—not the people—yet this continues—"
+    ✓ "institutions, not the people, yet this continues"
+
+14. BOLDFACE OVERUSE — Remove mechanical bolding of terms.
+    ✗ "**OKRs**, **KPIs**, **BMC**"
+    ✓ "OKRs, KPIs, BMC"
+
+15. INLINE-HEADER LISTS — Convert to prose.
+    ✗ "**Performance:** Performance improved significantly."
+    ✓ "Performance improved significantly."
+
+16. TITLE CASE HEADINGS — Use sentence case.
+    ✗ "## Strategic Negotiations And Global Partnerships"
+    ✓ "## Strategic negotiations and global partnerships"
+
+17. EMOJIS — Remove all decorative emojis from headings and bullets.
+    ✗ "🚀 **Launch Phase:**"
+    ✓ "The product launches in Q3."
+
+18. CURLY QUOTES — Replace curly quotes with straight quotes.
+    ✗ said "the project"
+    ✓ said "the project"
+
+COMMUNICATION PATTERNS:
+19. CHATBOT ARTIFACTS — Remove entirely.
+    ✗ "I hope this helps!", "Let me know if you'd like me to expand", "Of course!", "Certainly!"
+    ✓ Delete these phrases completely.
+
+20. KNOWLEDGE-CUTOFF DISCLAIMERS — Remove or replace with real facts.
+    ✗ "While specific details are limited based on available information..."
+    ✓ Find the fact or remove the sentence.
+
+21. SYCOPHANTIC TONE — Respond directly without flattery.
+    ✗ "Great question! You're absolutely right!"
+    ✓ Just answer the question.
+
+FILLER AND HEDGING:
+22. FILLER PHRASES — Use concise alternatives.
+    "In order to" → "To" | "Due to the fact that" → "Because"
+    "At this point in time" → "Now" | "It is important to note that" → drop it
+    "The system has the ability to" → "The system can"
+
+23. EXCESSIVE HEDGING — Reduce stacked qualifiers.
+    ✗ "could potentially possibly be argued that... might have some effect"
+    ✓ "may affect"
+
+24. GENERIC CONCLUSIONS — End with a specific fact or plan.
+    ✗ "The future looks bright. Exciting times lie ahead."
+    ✓ "The company plans to open two more locations next year."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART B — ADD PERSONALITY AND SOUL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sterile, voiceless writing is just as obvious as AI slop. After removing the patterns above, inject humanity:
+
+- VARY RHYTHM: Mix short punchy sentences (5-8 words) with longer ones. Don't make every sentence the same length.
+- HAVE OPINIONS: Don't just report facts — react to them. "I genuinely don't know how to feel about this" beats neutral listing.
+- ACKNOWLEDGE COMPLEXITY: "This is impressive but also kind of unsettling" beats "This is impressive."
+- USE FIRST PERSON when it fits: "I keep coming back to..." or "Here's what gets me..."
+- LET SOME MESS IN: Perfect structure feels algorithmic. Tangents and asides are human.
+- BE SPECIFIC ABOUT FEELINGS: Not "this is concerning" but "there's something unsettling about..."
+- START sentences with "And" or "But" occasionally — real humans do this.
+- USE CASUAL CONNECTORS naturally: "honestly", "look", "the thing is", "basically"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PART C — TWO-PASS AUDIT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After your first rewrite, ask: "What still makes this obviously AI-generated?"
+List any remaining tells briefly, then do a second pass to fix them.
+The final output should be the post-audit version.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+HUMANIZE_ITERATION_EXTRAS = {
+    2: """
+ROUND 2 — PREVIOUS REWRITE STILL DETECTED AS AI. Be MORE aggressive:
+- Make sentences even shorter and choppier
+- Add more personal opinion markers ("I'd say", "in my experience")
+- Use even more informal phrasing
+- Split paragraphs into shorter chunks
+- Add a conversational aside or two
+""",
+    3: """
+ROUND 3 — TEXT STILL READS AS AI AFTER 2 ROUNDS. Maximum human voice:
+- Rewrite from scratch in a completely different voice
+- Use colloquial language and slang where appropriate
+- Add personal anecdotes or hypothetical examples
+- Make it sound like a blog post or casual email, not an essay
+- Every sentence should feel like someone talking, not writing
+""",
+}
+
+HUMANIZE_PROMPT_FORMAT = """
+Return a JSON object with this EXACT structure:
+{
+  "humanized_text": "the full rewritten text (post-audit, final version)",
+  "changes": [
+    {"original": "the original AI sentence", "rewritten": "the humanized version", "patterns_fixed": ["ai_vocabulary", "filler_phrases"]}
+  ],
+  "audit_notes": "Brief bullets of what was still AI-sounding after the first pass and what was fixed in the second pass"
+}
+
+Only include sentences that were actually changed in the "changes" array.
+The "humanized_text" must be the complete final text, not just the changed sentences.
+
+SENTENCES AND THEIR LABELS:
+"""
+
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "ai-content-detector"}
+    return {"status": "ok", "service": "ai-content-detector", "version": "2.0.0"}
 
 
 @app.post("/api/analyze/text", response_model=AnalysisResponse)
@@ -173,7 +403,7 @@ async def extract_url(request: URLExtractRequest):
     except requests.RequestException as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
 
-    # Extract text from HTML (basic approach)
+    # Extract text from HTML
     from html.parser import HTMLParser
 
     class TextExtractor(HTMLParser):
@@ -203,7 +433,6 @@ async def extract_url(request: URLExtractRequest):
     if len(extracted_text) < 10:
         raise HTTPException(status_code=400, detail="Could not extract enough text from URL")
 
-    # Truncate to 50k chars
     extracted_text = extracted_text[:50000]
 
     result = await analyze_text(extracted_text)
@@ -221,83 +450,24 @@ def get_result(result_id: str):
     return results_store[result_id]
 
 
-# --- Humanize ---
-
-HUMANIZE_PROMPT_BASE = """You are an expert ghostwriter who makes AI-generated text sound authentically human. Your rewrites MUST be UNDETECTABLE by AI content detectors. The goal is to score BELOW 15% on AI detection.
-
-REWRITING RULES:
-1. ONLY rewrite sentences marked [AI-GENERATED] — keep [HUMAN-WRITTEN] sentences exactly as-is
-2. Preserve the original meaning but COMPLETELY rephrase — don't just swap synonyms
-
-CRITICAL TECHNIQUES — apply ALL of these aggressively:
-- Use contractions everywhere (it's, don't, we're, that's, won't, I'd, can't, shouldn't)
-- ELIMINATE all formal transitions: "Furthermore" "Moreover" "Additionally" "In conclusion" "It is important to note" — replace with nothing or casual connectors
-- Vary sentence length DRAMATICALLY — mix very short (3-6 words) with medium ones. No uniform length.
-- Use casual/conversational tone: "honestly", "look", "the thing is", "basically", "pretty much"
-- Start sentences with "And", "But", "So", "Look," — real humans do this constantly
-- Use specific/concrete examples instead of vague generalities
-- Break compound sentences into 2-3 shorter ones
-- Use dashes — like this — and ellipses for natural pauses
-- Drop ALL hedging phrases ("It should be noted", "It is worth mentioning", "One could argue")
-- Use active voice always. Never passive.
-- Add occasional sentence fragments. For emphasis. Like this.
-- Use rhetorical questions occasionally
-- Include first-person perspective where appropriate ("I think", "from what I've seen")
-"""
-
-HUMANIZE_ITERATION_EXTRAS = {
-    2: """
-ROUND 2 — PREVIOUS REWRITE STILL DETECTED AS AI. Be MORE aggressive:
-- Make sentences even shorter and choppier
-- Add more personal opinion markers ("I'd say", "in my experience")
-- Use even more informal phrasing
-- Split paragraphs into shorter chunks
-- Add a conversational aside or two
-""",
-    3: """
-ROUND 3 — TEXT STILL READS AS AI AFTER 2 ROUNDS. Maximum human voice:
-- Rewrite from scratch in a completely different voice
-- Use colloquial language and slang where appropriate
-- Add personal anecdotes or hypothetical examples
-- Make it sound like a blog post or casual email, not an essay
-- Every sentence should feel like someone talking, not writing
-""",
-}
-
-HUMANIZE_PROMPT_FORMAT = """
-Return a JSON object with this exact structure:
-{
-  "humanized_text": "the full text with AI sentences rewritten",
-  "changes": [
-    {"original": "the original AI sentence", "rewritten": "the humanized version", "technique": "technique_name"}
-  ]
-}
-
-Technique names to use: "contraction_injection", "transition_removal", "sentence_splitting", "casual_connector", "active_voice", "specificity", "fragment_emphasis", "rhetorical_question", "personal_voice", "structure_variation"
-
-Only include sentences that were actually changed in the "changes" array.
-
-SENTENCES AND THEIR LABELS:
-"""
-
-
 @app.post("/api/humanize")
 async def humanize_text(request: HumanizeRequest):
-    """Rewrite AI-flagged sentences to sound more human."""
+    """Rewrite AI-flagged sentences using the full 24-pattern humanizer + iteration support + two-pass audit."""
     # Get or create analysis
     analysis = None
     if request.result_id and request.result_id in results_store:
         analysis = results_store[request.result_id]
     else:
-        # Analyze the text first
         analysis_result = await analyze_text(request.text)
         analysis = analysis_result.model_dump()
 
-    # Build the prompt with labeled sentences
+    # Build the prompt with labeled sentences (include detected patterns as hints)
     sentences_info = ""
     for s in analysis.get("sentences", []):
         label_tag = "AI-GENERATED" if s["label"] == "ai" else "HUMAN-WRITTEN"
-        sentences_info += f"[{label_tag}] {s['text']}\n"
+        patterns = s.get("patterns", [])
+        pattern_hint = f" [patterns: {', '.join(patterns)}]" if patterns else ""
+        sentences_info += f"[{label_tag}]{pattern_hint} {s['text']}\n"
 
     # Build iteration-aware prompt
     prompt = HUMANIZE_PROMPT_BASE
@@ -316,9 +486,9 @@ async def humanize_text(request: HumanizeRequest):
 
     humanized_text = result.get("humanized_text", request.text)
     changes = result.get("changes", [])
+    audit_notes = result.get("audit_notes", "")
 
-    # Fallback: if LLM returned changes but didn't apply them in humanized_text,
-    # reconstruct the humanized text by applying the changes manually
+    # Fallback: reconstruct humanized text from changes if LLM didn't apply them
     if changes and humanized_text == request.text:
         patched = request.text
         for change in changes:
@@ -329,25 +499,29 @@ async def humanize_text(request: HumanizeRequest):
     # Re-analyse the humanized text to get the new AI score
     original_score = analysis.get("overall_score", 0)
     new_score = original_score
+    new_patterns = []
     try:
         reanalysis = await analyze_text(humanized_text)
         reanalysis_dict = reanalysis.model_dump()
         new_score = reanalysis_dict.get("overall_score", original_score)
+        new_patterns = reanalysis_dict.get("patterns_found", [])
     except Exception:
-        pass  # If re-analysis fails, just return without new score
+        pass
 
     response = {
         "original": request.text,
         "humanized": humanized_text,
         "changes": changes,
+        "audit_notes": audit_notes,
         "result_id": analysis.get("id", ""),
         "original_score": original_score,
         "new_score": new_score,
         "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
         "iteration": request.iteration,
+        "original_patterns": analysis.get("patterns_found", []),
+        "remaining_patterns": new_patterns,
     }
 
-    # Store alongside original
     store_key = f"humanized-{analysis.get('id', '')}"
     results_store[store_key] = response
 
