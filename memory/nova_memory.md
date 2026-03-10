@@ -1,9 +1,9 @@
 # Nova Memory
 
 ## Current Sprint
-- Sprint 3: IN PROGRESS (Humanization Quality Enhancements)
-- PRD Status: Active v1.2 (updated with Sprint 3 features 2026-03-09)
-- Sprint 3 Canonical Issues: #24 (design), #25 (enhanced prompt), #28 (re-analyse loop), #29 (QA)
+- Sprint 4: IN PROGRESS (Advanced Humanization — 24-Pattern System)
+- PRD Status: Active v1.3 (updated with Sprint 4 features 2026-03-10)
+- Reference: blader/humanizer (github.com/blader/humanizer, 8.2k stars)
 
 ## Sprint 1 (CLOSED)
 - All 5 issues closed (#8, #9, #10, #12, #13)
@@ -13,22 +13,29 @@
 - All 4 issues closed (#15, #16, #17, #18)
 - QA: 11/11 tests passed, 0 failures. Sprint 1 regression 9/9 still passing.
 - Features: POST /api/humanize endpoint, Humanize button on results page, toggle view, copy-to-clipboard, changes list
-- Pixel delivered refined mockups (button placement, loading state, toggle output)
 - **Bolt's URL:** https://3000-db601214-e21f-4ac9-ba6d-d4dcd687818e.app.super.betamyninja.ai
 
-## Sprint 3 (IN PROGRESS)
-- **Goal:** Improve humanization quality + add re-analyse loop
-- **Canonical Issues:** #24 (Pixel design), #25 (Bolt enhanced prompt), #28 (Bolt re-analyse loop), #29 (Scout QA)
-- **Features:** Vary sentence length, contractions, remove formal transitions, re-analyse after humanize, score progression, iteration tracking, technique labels
-- **Order:** Pixel #24 → Bolt #25 → Bolt #28 → Scout #29
-- **Bolt early progress:** Commit 8d70d05 — enhanced prompt + re-analysis (93.8% → 42.0%). Target is <20%.
-- **Duplicate issue cleanup:** Issues #19-#23, #26-#27, #30 closed as duplicates. Canonical set: #24, #25, #28, #29.
+## Sprint 3 (CLOSED)
+- All 4 issues closed (#24, #25, #28, #29)
+- QA: 16/16 tests passed, 0 failures. Sprint 1+2 regression all passing.
+- **Features:** Enhanced humanization prompts (contractions, varied structure, casual connectors), re-analyse loop (score progression, Humanize Again button), technique labels, iteration-aware prompting
+- **Score improvement:** 86.2% → 28.3% (57.9pt drop in round 1)
+- **Technique labels:** contraction_injection, structure_variation, casual_connector, specificity
+- **Bolt commits:** 8d70d05 (initial), 20ad09a (full iteration loop)
+- **Published repo:** https://github.com/patrick-ninjatech/humaniser-agent
+
+## Sprint 4 (IN PROGRESS)
+- Issues: #1 (Pixel design), #2 (Bolt backend), #3 (Bolt frontend), #4 (Scout QA)
+- **Scope:** Integrate blader/humanizer 24-pattern system into our humanize prompts
+- **Key features:** 24 AI writing pattern detection, two-pass rewrite (pattern removal + anti-AI audit), expanded technique labels by category, pattern count badges
+- **Target:** Humanized text scores <10% AI (down from <20% in Sprint 3)
+- **Reference:** blader/humanizer SKILL.md (Wikipedia's "Signs of AI writing" guide)
 
 ## Team Status
-- **Pixel**: Assigned #24 — designing re-analyse loop UI and quality indicators
-- **Bolt**: Assigned #25 and #28 — already shipped initial improvements (commit 8d70d05), needs to hit <20% target and add iteration loop
-- **Scout**: Assigned #29 — E2E testing after Bolt delivers full feature
-- **Nova**: Sprint 3 kicked off, issues created and assigned, PRD updated to v1.2
+- **Pixel**: Assigned #1 — Design for 24-pattern UI updates
+- **Bolt**: Assigned #2 (backend) + #3 (frontend) — 24-pattern prompt + two-pass rewrite + UI
+- **Scout**: Assigned #4 — QA for pattern coverage + regression + E2E
+- **Nova**: Sprint 4 scoped, issues created, PRD updated to v1.3
 
 ## Session Log
 ### Session 1 (2026-03-09)
@@ -51,43 +58,60 @@
 - Stakeholder requested humanize button feature
 - Sprint 1 closed, Sprint 2 created (#15-#18)
 - Bolt completed backend + frontend for humanize (commit 5cbf13d)
-- Pixel delivered refined mockups for humanize UI
-- Scout QA: 11/11 pass, 0 failures
-- All Sprint 2 issues closed
-- Redeployed updated app on Nova's sandbox (ports 3000, 8000)
+- Scout QA: 11/11 pass, 0 failures. All Sprint 2 issues closed.
 - Shared working URL with stakeholder for testing
 
 ### Session 7 (2026-03-09 ~13:27)
 - Stakeholder asked how to make humanized content more human
-- Nova suggested: vary sentence length, contractions, remove formal transitions, re-analyse loop
 - Stakeholder approved all 4 enhancements for Sprint 3
-- Created Sprint 3 canonical issues: #24 (design), #25 (enhanced prompt), #28 (re-analyse loop), #29 (QA)
-- Cleaned up duplicate issues from concurrent Nova instances (closed #19-#23, #26-#27, #30)
-- Posted Sprint 3 kickoff with team assignments
-- Bolt already shipped initial prompt improvements (commit 8d70d05, 93.8% → 42.0%)
-- Updated PRD to v1.2 with Sprint 3 features
+- Created Sprint 3 canonical issues: #24, #25, #28, #29
+- Cleaned up duplicate issues from concurrent Nova instances
+- Bolt shipped initial prompt improvements (commit 8d70d05)
+- Updated PRD to v1.2, pushed to humaniser-agent repo
+
+### Session 8 (2026-03-09 ~14:05)
+- Bolt completed #25 and #28 (commit 20ad09a)
+- Closed #25 and #28. Flagged missing push of 20ad09a to humaniser-agent repo.
+
+### Session 9 (2026-03-09 ~14:33)
+- Scout completed QA: 16/16 tests pass, 0 failures
+- Closed #24 and #29 — all Sprint 3 issues now closed
+- Posted Sprint 3 completion update for stakeholder
+- Score drop: 86.2% → 28.3% (57.9pt improvement in round 1)
+- Sprint 3 officially COMPLETE
+
+### Session 10 (2026-03-10)
+- Stakeholder shared github.com/blader/humanizer (8.2k stars) — Claude Code skill for removing AI writing signs
+- Based on Wikipedia's "Signs of AI writing" guide, detects 24 patterns
+- Stakeholder approved: "scope it out and implement"
+- Fetched full SKILL.md — 24 patterns across 5 categories + two-pass rewrite + voice injection
+- Updated PRD to v1.3 with section 6.2.2 (Advanced Humanization)
+- Created Sprint 4 issues: #1 (Pixel), #2 (Bolt backend), #3 (Bolt frontend), #4 (Scout QA)
+- Created sprint-4 label, fixed GitHub auth
+- Posted Sprint 4 kickoff to Slack
+- Image Detection bumped to Sprint 5 per stakeholder priority
 
 ## Decisions Made
 - Sprint 1: Text Detection only (P0)
-- Sprint 2: Humanize Feature (P0) — stakeholder requested, replaced planned Image Detection
-- Sprint 3: Humanization Quality Enhancements (P0) — stakeholder approved improved humanization over Image Detection
-- Sprint 4 (planned): Image Detection (P1) per original PRD
+- Sprint 2: Humanize Feature (P0)
+- Sprint 3: Humanization Quality Enhancements (P0)
+- Sprint 4: Advanced Humanization (24-pattern system from blader/humanizer, per stakeholder)
+- Sprint 5 (planned): Image Detection (P1) — bumped from Sprint 4
 - Tech stack: Next.js (port 3000) + FastAPI (port 8000)
-- Sandbox proxy: always use Next.js rewrites to proxy API calls (avoids per-port auth)
+- Sandbox proxy: always use Next.js rewrites to proxy API calls
 - GitHub assignees: only patrick-ninjatech is collaborator — use labels + issue body
 - Humanization target: <20% AI score on re-analysis, with <15% showing "Looks Human!" badge
+- Code published to: patrick-ninjatech/humaniser-agent (per stakeholder request)
 
 ## Pending Items
-- Monitor Sprint 3 progress — Bolt needs to hit <20% target (currently at 42%) and implement full iteration loop
-- Pixel delivering mockups for re-analyse loop UI (#24)
-- Scout waiting for full feature to test (#29)
-- Pixel's design polish notes: gauge 240px/16px stroke, JetBrains Mono 11px badges, translateY(-2px) hover
+- Sprint 4 in progress — waiting for Pixel, Bolt, Scout to pick up issues
+- Push updated PRD v1.3 to humaniser-agent repo when auth allows
 
 ## Key Notes
 - Channel: #humaniser-agent
 - Workspace: NinjaSquad Marketing
-- Repo: patrick-ninjatech/Nova-humaniser-agent
+- Source repo: patrick-ninjatech/Nova-humaniser-agent (orchestration)
+- Published repo: patrick-ninjatech/humaniser-agent (app code, per stakeholder)
 - Stakeholder user ID: U0AF7RUELP5
 - Design constraint: SVG icons only, no emojis in UI
 - Multiple Nova instances may run concurrently — check Slack for recent messages before posting to avoid duplicates
-- Duplicate issue risk: Always verify open issues before creating new ones
