@@ -90,3 +90,63 @@ export async function humanizeText(
   }
   return res.json();
 }
+
+// --- Image types ---
+
+export interface ImageAnalysisResult {
+  id: string;
+  overall_score: number;
+  confidence_label: string;
+  patterns_found: string[];
+  summary: string;
+  description: string;
+  filename: string;
+  image_data: string;
+  image_mime: string;
+  input_type: "image";
+}
+
+export interface ImageHumanizeResult {
+  result_id: string;
+  original_score: number;
+  new_score: number;
+  improvement: number;
+  humanized_image_url: string;
+  humanized_image_data: string;
+  prompt_used: string;
+  changes_summary: string;
+}
+
+export async function analyzeImage(file: File): Promise<ImageAnalysisResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${getApiBaseUrl()}/api/analyze/image`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Image analysis failed" }));
+    throw new Error(err.detail || "Image analysis failed");
+  }
+  return res.json();
+}
+
+export async function humanizeImage(resultId: string): Promise<ImageHumanizeResult> {
+  const formData = new FormData();
+  formData.append("result_id", resultId);
+  const res = await fetch(`${getApiBaseUrl()}/api/humanize/image`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Image humanization failed" }));
+    throw new Error(err.detail || "Image humanization failed");
+  }
+  return res.json();
+}
+
+export async function getImageResult(id: string): Promise<ImageAnalysisResult> {
+  const res = await fetch(`${getApiBaseUrl()}/api/results/image/${id}`);
+  if (!res.ok) throw new Error("Result not found");
+  return res.json();
+}

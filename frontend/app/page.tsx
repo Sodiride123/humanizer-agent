@@ -2,15 +2,17 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { analyzeText, analyzeUrl, AnalysisResult } from "@/lib/api";
+import { analyzeText, analyzeUrl, analyzeImage, AnalysisResult } from "@/lib/api";
 
-type InputMode = "paste" | "upload" | "url";
+type InputMode = "paste" | "upload" | "url" | "image";
 
 export default function Home() {
   const router = useRouter();
   const [mode, setMode] = useState<InputMode>("paste");
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
@@ -20,6 +22,18 @@ export default function Home() {
     setLoading(true);
 
     try {
+      if (mode === "image") {
+        if (!imageFile) {
+          setError("Please select an image to analyse");
+          setLoading(false);
+          return;
+        }
+        const result = await analyzeImage(imageFile);
+        sessionStorage.setItem(`img-result-${result.id}`, JSON.stringify(result));
+        router.push(`/results/image/${result.id}`);
+        return;
+      }
+
       let result: AnalysisResult;
       if (mode === "url") {
         if (!url.trim()) {
@@ -71,6 +85,35 @@ export default function Home() {
       };
       reader.readAsText(file);
     }
+  };
+
+  const handleImageFile = (file: File) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!allowed.includes(file.type)) {
+      setError("Please upload a JPEG, PNG, WebP, or GIF image");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Image must be under 10MB");
+      return;
+    }
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    setError("");
+  };
+
+  const handleImageDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleImageFile(file);
+  }, []);
+
+  const handleImageInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleImageFile(file);
   };
 
   return (
@@ -180,19 +223,75 @@ export default function Home() {
             </div>
           )}
 
+          {mode === "image" && (
+            <div>
+              {!imagePreview ? (
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleImageDrop}
+                  className="min-h-[220px] rounded-2xl p-12 text-center transition-colors"
+                  style={{
+                    background: "var(--bg-input)",
+                    border: dragActive ? "2px dashed var(--accent-action)" : "2px dashed var(--border-subtle)",
+                  }}
+                >
+                  <svg width="48" height="48" viewBox="0 0 48 48" fill="none" className="mx-auto mb-4">
+                    <rect x="4" y="10" width="40" height="30" rx="4" stroke="var(--text-secondary)" strokeWidth="2.5" fill="none"/>
+                    <circle cx="16" cy="20" r="4" stroke="var(--text-secondary)" strokeWidth="2.5" fill="none"/>
+                    <path d="M4 34l10-8 8 6 6-5 16 13" stroke="var(--text-secondary)" strokeWidth="2.5" strokeLinejoin="round"/>
+                  </svg>
+                  <p style={{ color: "var(--text-secondary)" }} className="mb-2">
+                    Drag and drop an image here, or{" "}
+                    <label className="cursor-pointer font-medium" style={{ color: "var(--accent-action)" }}>
+                      browse
+                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleImageInput} />
+                    </label>
+                  </p>
+                  <p className="text-sm" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>
+                    Supports JPEG, PNG, WebP, GIF · Max 10MB
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl overflow-hidden relative" style={{ background: "var(--bg-input)", border: "1px solid var(--border-subtle)" }}>
+                  <img src={imagePreview} alt="Preview" className="w-full max-h-[320px] object-contain" />
+                  <div className="p-3 flex items-center justify-between">
+                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                      {imageFile?.name} · {imageFile ? (imageFile.size / 1024).toFixed(0) : 0}KB
+                    </p>
+                    <button
+                      onClick={() => { setImageFile(null); setImagePreview(""); }}
+                      className="text-xs px-2 py-1 rounded-md"
+                      style={{ color: "var(--accent-ai)", background: "rgba(239,68,68,0.1)" }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tabs */}
-          <div className="flex gap-2 justify-center mt-4">
-            {(["paste", "upload", "url"] as InputMode[]).map((m) => (
+          <div className="flex gap-2 justify-center mt-4 flex-wrap">
+            {(["paste", "upload", "url", "image"] as InputMode[]).map((m) => (
               <button
                 key={m}
                 onClick={() => { setMode(m); setError(""); }}
-                className="py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                className="py-2 px-4 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
                 style={{
                   background: mode === m ? "var(--accent-action)" : "transparent",
                   color: mode === m ? "#fff" : "var(--text-secondary)",
                 }}
               >
-                {m === "paste" ? "Paste Text" : m === "upload" ? "Upload File" : "Enter URL"}
+                {m === "image" && (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                    <circle cx="4.5" cy="6.5" r="1.5" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                    <path d="M1 10.5l3-2.5 2.5 2 2-1.5 4.5 4" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                  </svg>
+                )}
+                {m === "paste" ? "Paste Text" : m === "upload" ? "Upload File" : m === "url" ? "Enter URL" : "Image"}
               </button>
             ))}
           </div>
@@ -231,6 +330,8 @@ export default function Home() {
                 </svg>
                 Analysing...
               </span>
+            ) : mode === "image" ? (
+              "Analyse Image"
             ) : (
               "Analyse Text"
             )}
@@ -238,12 +339,19 @@ export default function Home() {
         </div>
 
         {/* Feature cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16 max-w-[1200px]">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-16 max-w-[1200px]">
           {[
-            { title: "AI Detection", desc: "Detect AI-generated content with 98% accuracy using advanced analysis.", icon: (
+            { title: "Text Detection", desc: "Detect AI-generated text with 24-pattern analysis across content, language and style.", icon: (
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                 <circle cx="24" cy="24" r="18" stroke="var(--accent-action)" strokeWidth="3"/>
                 <path d="M24 12v12l8 4" stroke="var(--accent-action)" strokeWidth="3" strokeLinecap="round"/>
+              </svg>
+            )},
+            { title: "Image Detection", desc: "Spot AI-generated images by analysing 20 visual patterns — textures, lighting, hands and more.", icon: (
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect x="4" y="10" width="40" height="28" rx="4" stroke="var(--accent-action)" strokeWidth="3" fill="none"/>
+                <circle cx="16" cy="22" r="5" stroke="var(--accent-action)" strokeWidth="3" fill="none"/>
+                <path d="M4 36l12-10 9 7 7-6 12 9" stroke="var(--accent-action)" strokeWidth="3" strokeLinejoin="round"/>
               </svg>
             )},
             { title: "Smart Rewriting", desc: "Preserve meaning while making your text sound naturally human.", icon: (
