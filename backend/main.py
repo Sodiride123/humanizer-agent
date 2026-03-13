@@ -559,7 +559,24 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
         image_mime=mime_type,
     )
 
-    results_store[result_id] = response.model_dump()
+    response_dict = response.model_dump()
+    results_store[result_id] = response_dict
+
+    # Persist original image bytes and metadata to disk so humanize works after restart
+    try:
+        ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
+        orig_path = IMAGES_DIR / f"original_{result_id}.{ext}"
+        orig_path.write_bytes(base64.b64decode(image_b64))
+
+        # Save metadata without the large image_data blob
+        meta = {k: v for k, v in response_dict.items() if k != "image_data"}
+        meta["original_image_path"] = str(orig_path)
+        meta_path = IMAGES_DIR / f"meta_{result_id}.json"
+        with open(meta_path, "w") as mf:
+            json.dump(meta, mf)
+    except Exception:
+        pass  # Non-critical — in-memory store is the primary source
+
     return response
 
 
@@ -587,46 +604,27 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
 
 
 @app.post("/api/humanize/image")
-async def humanize_image_endpoint(
-    result_id: str = Form(...),
-    image_data: Optional[str] = Form(None),       # base64 of original image (fallback)
-    image_mime: Optional[str] = Form(None),       # mime type fallback
-    description: Optional[str] = Form(None),      # description fallback
-    patterns_found: Optional[str] = Form(None),   # JSON array string fallback
-    overall_score: Optional[float] = Form(None),  # score fallback
-):
-    """Regenerate an analysed image to look less AI-generated.
-    
-    Accepts optional fallback fields so the endpoint works even after a backend restart,
-    as long as the frontend passes back the cached analysis data.
-    """
-    # Try to get from in-memory store first
+async def humanize_image_endpoint(result_id: str = Form(...)):
+    """Regenerate an analysed image to look less AI-generated."""
+    # Try in-memory store first
     analysis = results_store.get(result_id)
 
-    # If not in memory but fallback data provided, reconstruct the analysis
-    if not analysis and image_data and description is not None:
-        import json as _json
-        patterns = []
-        if patterns_found:
+    # If not in memory, try to reload from persisted metadata file
+    if not analysis:
+        meta_path = IMAGES_DIR / f"meta_{result_id}.json"
+        if meta_path.exists():
             try:
-                patterns = _json.loads(patterns_found)
+                with open(meta_path, "r") as f:
+                    analysis = json.load(f)
+                results_store[result_id] = analysis
             except Exception:
-                patterns = [p.strip() for p in patterns_found.split(",") if p.strip()]
-
-        analysis = {
-            "id": result_id,
-            "input_type": "image",
-            "overall_score": overall_score or 50.0,
-            "description": description,
-            "patterns_found": patterns,
-            "image_data": image_data,
-            "image_mime": image_mime or "image/jpeg",
-        }
-        # Re-store it for future use
-        results_store[result_id] = analysis
+                pass
 
     if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis result not found. Please re-analyse the image.")
+        raise HTTPException(
+            status_code=404,
+            detail="Analysis result not found. Please re-upload and analyse the image."
+        )
 
     if analysis.get("input_type") != "image":
         raise HTTPException(status_code=400, detail="This result is not an image analysis.")
@@ -634,6 +632,13 @@ async def humanize_image_endpoint(
     description = analysis.get("description", "")
     patterns = analysis.get("patterns_found", [])
     original_score = analysis.get("overall_score", 50)
+
+    # Reload image_data from disk if not in memory (after restart)
+    if not analysis.get("image_data"):
+        orig_path = analysis.get("original_image_path")
+        if orig_path and Path(orig_path).exists():
+            analysis["image_data"] = base64.b64encode(Path(orig_path).read_bytes()).decode()
+            analysis["image_mime"] = analysis.get("image_mime", "image/png")
 
     humanize_prompt = f"""Original image description:
 {description}
