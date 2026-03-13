@@ -525,7 +525,7 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
     ]
 
     try:
-        raw = chat_messages(messages, model="ninja-standard", max_tokens=2048, temperature=0.0)
+        raw = chat_messages(messages, model="ninja-complex", max_tokens=2048, temperature=0.0)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")
 
@@ -611,7 +611,7 @@ Craft a new image generation prompt that will produce a similar image but lookin
 """
 
     try:
-        prompt_result = chat_json(humanize_prompt, model="ninja-standard", system=IMAGE_HUMANIZE_SYSTEM)
+        prompt_result = chat_json(humanize_prompt, model="ninja-complex", system=IMAGE_HUMANIZE_SYSTEM)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prompt generation failed: {str(e)}")
 
