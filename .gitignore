@@ -6,7 +6,8 @@ s3_config.json
 .claude.json
 
 # Python
-__pycache__/
+__pycache__
+backend/generated_images//
 *.py[cod]
 *$py.class
 *.so
