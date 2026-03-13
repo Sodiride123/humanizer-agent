@@ -111,8 +111,7 @@ export interface ImageHumanizeResult {
   original_score: number;
   new_score: number;
   improvement: number;
-  humanized_image_url: string;
-  humanized_image_data: string;
+  humanized_image_url: string;  // relative URL e.g. /api/images/humanized_xxx.png
   prompt_used: string;
   changes_summary: string;
 }
@@ -132,17 +131,33 @@ export async function analyzeImage(file: File): Promise<ImageAnalysisResult> {
 }
 
 export async function humanizeImage(resultId: string): Promise<ImageHumanizeResult> {
-  const formData = new FormData();
-  formData.append("result_id", resultId);
-  const res = await fetch(`${getApiBaseUrl()}/api/humanize/image`, {
+  // Step 1: start the background job
+  const startRes = await fetch(`${getApiBaseUrl()}/api/humanize/image`, {
     method: "POST",
-    body: formData,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ result_id: resultId }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Image humanization failed" }));
+  if (!startRes.ok) {
+    const err = await startRes.json().catch(() => ({ detail: "Image humanization failed" }));
     throw new Error(err.detail || "Image humanization failed");
   }
-  return res.json();
+  const { job_id } = await startRes.json();
+
+  // Step 2: poll until done (every 3s, max 3 minutes)
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const pollRes = await fetch(`${getApiBaseUrl()}/api/humanize/image/status/${job_id}`);
+    if (!pollRes.ok) {
+      const err = await pollRes.json().catch(() => ({ detail: "Humanization failed" }));
+      throw new Error(err.detail || "Humanization failed");
+    }
+    const data = await pollRes.json();
+    if (data.status === "done") return data.result as ImageHumanizeResult;
+    if (data.status === "error") throw new Error(data.error || "Humanization failed");
+    // still processing — continue polling
+  }
+  throw new Error("Image humanization timed out. Please try again.");
 }
 
 export async function getImageResult(id: string): Promise<ImageAnalysisResult> {

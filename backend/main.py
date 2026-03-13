@@ -5,10 +5,11 @@ import sys
 import os
 import base64
 import mimetypes
+import asyncio
 from typing import Optional
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -33,6 +34,9 @@ app.add_middleware(
 
 # In-memory results store
 results_store: dict = {}
+
+# Background jobs store for async image humanization
+jobs_store: dict = {}  # job_id -> {status, result, error}
 
 # Directory for generated/humanised images
 IMAGES_DIR = Path(os.path.dirname(os.path.abspath(__file__))) / "generated_images"
@@ -91,7 +95,6 @@ class ImageHumanizeResponse(BaseModel):
     new_score: float
     improvement: float
     humanized_image_url: str  # relative URL served by /api/images/
-    humanized_image_data: str # base64 for immediate display
     prompt_used: str
     changes_summary: str
 
@@ -603,13 +606,73 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     return await analyse_image_data(image_b64, content_type, file.filename or "image")
 
 
-@app.post("/api/humanize/image")
-async def humanize_image_endpoint(result_id: str = Form(...)):
-    """Regenerate an analysed image to look less AI-generated."""
-    # Try in-memory store first
-    analysis = results_store.get(result_id)
+class ImageHumanizeRequest(BaseModel):
+    result_id: str
 
-    # If not in memory, try to reload from persisted metadata file
+
+async def _run_humanize_job(job_id: str, result_id: str, analysis: dict):
+    """Background task: generate a humanised image and store result in jobs_store."""
+    try:
+        description = analysis.get("description", "")
+        patterns = analysis.get("patterns_found", [])
+        original_score = analysis.get("overall_score", 50)
+
+        humanize_prompt = f"""Original image description:
+{description}
+
+Detected AI patterns: {', '.join(patterns) if patterns else 'none specific'}
+Original AI score: {original_score}/100
+
+Craft a new image generation prompt that will produce a similar image but looking MORE human/authentic and LESS AI-generated.
+"""
+
+        prompt_result = chat_json(humanize_prompt, model="ninja-complex", system=IMAGE_HUMANIZE_SYSTEM)
+        new_prompt = prompt_result.get("prompt", description)
+        changes_summary = prompt_result.get("changes_summary", "Applied anti-AI humanisation rules.")
+
+        output_filename = f"humanized_{result_id}.png"
+        output_path = str(IMAGES_DIR / output_filename)
+
+        generate_image(
+            prompt=new_prompt,
+            model="gemini-image",
+            size="1024x1024",
+            output=output_path,
+        )
+
+        # Re-analyse new image for score (skip to save time if file is large)
+        new_score = original_score
+        try:
+            with open(output_path, "rb") as f:
+                new_image_b64 = base64.b64encode(f.read()).decode("utf-8")
+            reanalysis = await analyse_image_data(new_image_b64, "image/png", output_filename)
+            new_score = reanalysis.overall_score
+        except Exception:
+            pass
+
+        result = {
+            "result_id": result_id,
+            "original_score": original_score,
+            "new_score": new_score,
+            "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
+            "humanized_image_url": f"/api/images/{output_filename}",
+            "prompt_used": new_prompt,
+            "changes_summary": changes_summary,
+        }
+        results_store[f"humanized-img-{result_id}"] = result
+        jobs_store[job_id] = {"status": "done", "result": result}
+
+    except Exception as e:
+        jobs_store[job_id] = {"status": "error", "error": str(e)}
+
+
+@app.post("/api/humanize/image")
+async def humanize_image_endpoint(request: ImageHumanizeRequest, background_tasks: BackgroundTasks):
+    """Start a background job to regenerate an image as less AI-looking. Returns a job_id to poll."""
+    result_id = request.result_id
+
+    # Load analysis from memory or disk
+    analysis = results_store.get(result_id)
     if not analysis:
         meta_path = IMAGES_DIR / f"meta_{result_id}.json"
         if meta_path.exists():
@@ -625,74 +688,36 @@ async def humanize_image_endpoint(result_id: str = Form(...)):
             status_code=404,
             detail="Analysis result not found. Please re-upload and analyse the image."
         )
-
     if analysis.get("input_type") != "image":
         raise HTTPException(status_code=400, detail="This result is not an image analysis.")
 
-    description = analysis.get("description", "")
-    patterns = analysis.get("patterns_found", [])
-    original_score = analysis.get("overall_score", 50)
-
-    # Reload image_data from disk if not in memory (after restart)
+    # Reload image bytes from disk if needed
     if not analysis.get("image_data"):
         orig_path = analysis.get("original_image_path")
         if orig_path and Path(orig_path).exists():
             analysis["image_data"] = base64.b64encode(Path(orig_path).read_bytes()).decode()
             analysis["image_mime"] = analysis.get("image_mime", "image/png")
 
-    humanize_prompt = f"""Original image description:
-{description}
+    job_id = str(uuid.uuid4())
+    jobs_store[job_id] = {"status": "processing"}
 
-Detected AI patterns: {', '.join(patterns) if patterns else 'none specific'}
-Original AI score: {original_score}/100
+    # Run in background so proxy doesn't time out
+    background_tasks.add_task(_run_humanize_job, job_id, result_id, analysis)
 
-Craft a new image generation prompt that will produce a similar image but looking MORE human/authentic and LESS AI-generated.
-"""
+    return {"job_id": job_id, "status": "processing"}
 
-    try:
-        prompt_result = chat_json(humanize_prompt, model="ninja-complex", system=IMAGE_HUMANIZE_SYSTEM)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prompt generation failed: {str(e)}")
 
-    new_prompt = prompt_result.get("prompt", description)
-    changes_summary = prompt_result.get("changes_summary", "Applied anti-AI humanisation rules.")
-
-    output_filename = f"humanized_{result_id}.png"
-    output_path = str(IMAGES_DIR / output_filename)
-
-    try:
-        generate_image(
-            prompt=new_prompt,
-            model="gemini-image",
-            size="1024x1024",
-            output=output_path,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
-
-    with open(output_path, "rb") as f:
-        new_image_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    new_score = original_score
-    try:
-        reanalysis = await analyse_image_data(new_image_b64, "image/png", output_filename)
-        new_score = reanalysis.overall_score
-    except Exception:
-        pass
-
-    response = {
-        "result_id": result_id,
-        "original_score": original_score,
-        "new_score": new_score,
-        "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
-        "humanized_image_url": f"/api/images/{output_filename}",
-        "humanized_image_data": new_image_b64,
-        "prompt_used": new_prompt,
-        "changes_summary": changes_summary,
-    }
-
-    results_store[f"humanized-img-{result_id}"] = response
-    return response
+@app.get("/api/humanize/image/status/{job_id}")
+async def humanize_image_status(job_id: str):
+    """Poll this endpoint to check if the humanize job is done."""
+    job = jobs_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job["status"] == "done":
+        return {"status": "done", "result": job["result"]}
+    if job["status"] == "error":
+        raise HTTPException(status_code=500, detail=f"Image humanization failed: {job['error']}")
+    return {"status": "processing"}
 
 
 @app.get("/api/results/image/{result_id}")

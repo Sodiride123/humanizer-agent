@@ -132,8 +132,9 @@ export default function ImageResultPage() {
   const handleDownload = () => {
     if (!humanized) return;
     const link = document.createElement("a");
-    link.href = `data:image/png;base64,${humanized.humanized_image_data}`;
+    link.href = humanized.humanized_image_url;
     link.download = "humanized_image.png";
+    link.target = "_blank";
     link.click();
   };
 
@@ -404,7 +405,7 @@ export default function ImageResultPage() {
                     <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{humanized.new_score}% AI</span>
                   </div>
                   <img
-                    src={`data:image/png;base64,${humanized.humanized_image_data}`}
+                    src={humanized.humanized_image_url}
                     alt="Humanized"
                     className="w-full object-contain max-h-[320px]"
                     style={{ background: "var(--bg-primary)" }}
