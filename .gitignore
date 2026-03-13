@@ -7,10 +7,7 @@ s3_config.json
 
 # Python
 __pycache__
-backend/generated_images/*.png
-backend/generated_images/*.jpg
-backend/generated_images/*.webp
-backend/generated_images/*.gif/
+backend/generated_images//
 *.py[cod]
 *$py.class
 *.so
