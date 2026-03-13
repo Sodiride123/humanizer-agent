@@ -131,9 +131,20 @@ export async function analyzeImage(file: File): Promise<ImageAnalysisResult> {
   return res.json();
 }
 
-export async function humanizeImage(resultId: string): Promise<ImageHumanizeResult> {
+export async function humanizeImage(
+  resultId: string,
+  analysisResult?: ImageAnalysisResult
+): Promise<ImageHumanizeResult> {
   const formData = new FormData();
   formData.append("result_id", resultId);
+  // Pass cached analysis data as fallback in case backend was restarted
+  if (analysisResult) {
+    formData.append("image_data", analysisResult.image_data);
+    formData.append("image_mime", analysisResult.image_mime);
+    formData.append("description", analysisResult.description);
+    formData.append("patterns_found", JSON.stringify(analysisResult.patterns_found));
+    formData.append("overall_score", String(analysisResult.overall_score));
+  }
   const res = await fetch(`${getApiBaseUrl()}/api/humanize/image`, {
     method: "POST",
     body: formData,

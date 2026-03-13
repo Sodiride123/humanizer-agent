@@ -119,7 +119,8 @@ export default function ImageResultPage() {
     setHumanizeError("");
     setHumanizing(true);
     try {
-      const res = await humanizeImage(result.id);
+      // Pass full result as fallback so it works even after a backend restart
+      const res = await humanizeImage(result.id, result);
       setHumanized(res);
       setDownloadReady(true);
     } catch (e) {

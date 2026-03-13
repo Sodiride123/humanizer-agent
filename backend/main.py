@@ -587,12 +587,46 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
 
 
 @app.post("/api/humanize/image")
-async def humanize_image_endpoint(result_id: str = Form(...)):
-    """Regenerate an analysed image to look less AI-generated."""
-    if result_id not in results_store:
-        raise HTTPException(status_code=404, detail="Analysis result not found.")
+async def humanize_image_endpoint(
+    result_id: str = Form(...),
+    image_data: Optional[str] = Form(None),       # base64 of original image (fallback)
+    image_mime: Optional[str] = Form(None),       # mime type fallback
+    description: Optional[str] = Form(None),      # description fallback
+    patterns_found: Optional[str] = Form(None),   # JSON array string fallback
+    overall_score: Optional[float] = Form(None),  # score fallback
+):
+    """Regenerate an analysed image to look less AI-generated.
+    
+    Accepts optional fallback fields so the endpoint works even after a backend restart,
+    as long as the frontend passes back the cached analysis data.
+    """
+    # Try to get from in-memory store first
+    analysis = results_store.get(result_id)
 
-    analysis = results_store[result_id]
+    # If not in memory but fallback data provided, reconstruct the analysis
+    if not analysis and image_data and description is not None:
+        import json as _json
+        patterns = []
+        if patterns_found:
+            try:
+                patterns = _json.loads(patterns_found)
+            except Exception:
+                patterns = [p.strip() for p in patterns_found.split(",") if p.strip()]
+
+        analysis = {
+            "id": result_id,
+            "input_type": "image",
+            "overall_score": overall_score or 50.0,
+            "description": description,
+            "patterns_found": patterns,
+            "image_data": image_data,
+            "image_mime": image_mime or "image/jpeg",
+        }
+        # Re-store it for future use
+        results_store[result_id] = analysis
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis result not found. Please re-analyse the image.")
 
     if analysis.get("input_type") != "image":
         raise HTTPException(status_code=400, detail="This result is not an image analysis.")
