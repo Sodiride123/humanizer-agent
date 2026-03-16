@@ -87,7 +87,6 @@ humaniser-agent/
 │
 └── agent-docs/
     ├── PRD.md               # Product requirements
-    ├── ARCHITECTURE.md      # Architecture notes
     ├── DEPLOYMENT.md        # Deployment guide
     ├── LITELLM_GUIDE.md     # LiteLLM configuration
     └── MODELS.md            # Model selection guide
@@ -172,4 +171,4 @@ After generation, a 6-step pixel-level pipeline is applied:
 
 ## 📄 License
 
-MIT License — NinjaTech AI
+MIT License

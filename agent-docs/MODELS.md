@@ -1,6 +1,6 @@
 # Model Catalog
 
-All models available through the NinjaTech LiteLLM gateway.
+All models available through the LiteLLM gateway.
 
 **Gateway URL**: `https://model-gateway.public.beta.myninja.ai`  
 **Auth**: Bearer token from `/root/.claude/settings.json`
@@ -18,9 +18,9 @@ These models accept chat completion requests via `/v1/chat/completions`.
 | `claude-haiku` | `claude-haiku-4-5-20251001` | Anthropic | Fast responses, simple tasks | ✅ |
 | `gpt-5` | `openai/openai/gpt-5.2` | OpenAI | General purpose, coding | ✅ |
 | `gemini-pro` | `google/gemini/gemini-3-pro-preview` | Google | Multimodal, long context | ✅ |
-| `ninja-fast` | `ninja-cline-fast` | NinjaTech | Quick agent tasks | ✅ |
-| `ninja-standard` | `ninja-cline-standard` | NinjaTech | Standard agent tasks | ✅ |
-| `ninja-complex` | `ninja-cline-complex` | NinjaTech | Complex agent tasks | ✅ |
+| `ninja-fast` | `ninja-cline-fast` | Humanizer | Quick agent tasks | ✅ |
+| `ninja-standard` | `ninja-cline-standard` | Humanizer | Standard agent tasks | ✅ |
+| `ninja-complex` | `ninja-cline-complex` | Humanizer | Complex agent tasks | ✅ |
 
 ### Choosing a Chat Model
 

@@ -2,7 +2,7 @@
 Ninja Squad AI Utilities
 ========================
 
-Utility functions for interacting with AI models via the NinjaTech LiteLLM gateway.
+Utility functions for interacting with AI models via the LiteLLM gateway.
 
 Available modules:
     - litellm_client: Core client configuration and authentication

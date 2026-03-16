@@ -102,24 +102,24 @@ const frontendUrl = getPublicUrl(3000);
 
 **Static files (Python):**
 ```bash
-cd /workspace/ninja-squad/frontend
+cd /workspace/humaniser-agent/frontend
 python3 -m http.server 8085
 ```
 
 **Static files (Node.js):**
 ```bash
-npx serve -l 8085 /workspace/ninja-squad/frontend
+npx serve -l 8085 /workspace/humaniser-agent/frontend
 ```
 
 **Express API:**
 ```bash
-cd /workspace/ninja-squad/backend
+cd /workspace/humaniser-agent/backend
 node server.js  # Listening on port 8000
 ```
 
 **FastAPI / Flask:**
 ```bash
-cd /workspace/ninja-squad/backend
+cd /workspace/humaniser-agent/backend
 uvicorn main:app --host 0.0.0.0 --port 8000
 # or
 flask run --host 0.0.0.0 --port 8000

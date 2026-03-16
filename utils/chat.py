@@ -8,7 +8,7 @@ Supported models:
     - claude-opus, claude-sonnet, claude-haiku (Anthropic)
     - gpt-5 (OpenAI)
     - gemini-pro (Google)
-    - ninja-fast, ninja-standard, ninja-complex (NinjaTech)
+    - ninja-fast, ninja-standard, ninja-complex
 
 Usage:
     from utils.chat import chat, chat_stream, chat_messages

@@ -1,6 +1,6 @@
 # LiteLLM Gateway Guide
 
-Complete guide for agents to use AI models through the NinjaTech LiteLLM gateway.
+Complete guide for using AI models through the LiteLLM gateway.
 
 ---
 
@@ -21,7 +21,7 @@ Complete guide for agents to use AI models through the NinjaTech LiteLLM gateway
 
 ## Overview
 
-The NinjaTech LiteLLM gateway provides a unified OpenAI-compatible API for accessing models from multiple providers (Anthropic, OpenAI, Google, NinjaTech). All requests go through a single base URL with a single API key.
+The LiteLLM gateway provides a unified OpenAI-compatible API for accessing models from multiple providers (Anthropic, OpenAI, Google). All requests go through a single base URL with a single API key.
 
 **Gateway URL**: `https://model-gateway.public.beta.myninja.ai`  
 **Protocol**: OpenAI-compatible REST API  
@@ -87,7 +87,7 @@ print(f"Source:  {cfg['source']}")
 Or from the command line:
 
 ```bash
-cd /workspace/ninja-squad
+cd /workspace/humaniser-agent
 python -m utils.litellm_client
 ```
 
@@ -691,7 +691,7 @@ The key building blocks from `litellm_client.py` are:
 Each utility module has a built-in self-test:
 
 ```bash
-cd /workspace/ninja-squad
+cd /workspace/humaniser-agent
 
 # Test configuration
 python -m utils.litellm_client
