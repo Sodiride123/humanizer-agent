@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { analyzeText, analyzeUrl, analyzeImage, AnalysisResult } from "@/lib/api";
+import { Logo } from "@/components/Logo";
 
 type InputMode = "paste" | "upload" | "url" | "image";
 
@@ -29,7 +30,7 @@ export default function Home() {
           return;
         }
         const result = await analyzeImage(imageFile);
-        sessionStorage.setItem(`img-result-${result.id}`, JSON.stringify(result));
+        // Don't store in sessionStorage — fetch from backend on results page
         router.push(`/results/image/${result.id}`);
         return;
       }
@@ -121,10 +122,8 @@ export default function Home() {
       {/* Nav */}
       <header className="h-16 flex items-center px-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="max-w-[1200px] mx-auto w-full flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: "var(--accent-action)" }}>
-            H
-          </div>
-          <span className="text-xl font-bold text-white">Humaniser</span>
+          <Logo size={32} />
+          <span className="text-xl font-bold text-white">Humanizer</span>
         </div>
       </header>
 
@@ -380,7 +379,7 @@ export default function Home() {
       </main>
 
       <footer className="py-4 text-center text-sm" style={{ color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)" }}>
-        Humaniser — AI Content Authenticity Detector
+        Humanizer — AI Content Authenticity Detector
       </footer>
     </div>
   );

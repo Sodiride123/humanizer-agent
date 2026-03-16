@@ -6,6 +6,8 @@ import os
 import base64
 import mimetypes
 import asyncio
+import io
+import random
 from typing import Optional
 from pathlib import Path
 
@@ -83,9 +85,10 @@ class ImageAnalysisResponse(BaseModel):
     patterns_found: list[str] = []
     summary: str
     description: str          # What the image depicts (used as regeneration seed)
+    image_type: str = "photograph"  # photograph, graphic_design, illustration, ui_screenshot, mixed
     input_type: str = "image"
     filename: str             # original uploaded filename
-    image_data: str           # base64 of original image (for display)
+    image_url: str            # URL to original image served via /api/images/
     image_mime: str           # e.g. image/jpeg
 
 
@@ -432,6 +435,13 @@ Score the image from 0-100 where:
 - 31-60 = Uncertain / mixed signals
 - 61-100 = Likely AI-generated
 
+First, classify the IMAGE TYPE — this is critical for choosing the right humanisation strategy:
+- "photograph" — a realistic photo of a person, place, object, or scene
+- "graphic_design" — a marketing banner, poster, advertisement, or promotional graphic with brand text, UI elements, or illustrated characters
+- "illustration" — digital art, character art, concept art, or stylised artwork without brand/UI elements
+- "ui_screenshot" — a screenshot of an app, website, or software interface
+- "mixed" — a composite combining photography with graphic design or illustration elements
+
 Check for ALL of these known AI image patterns:
 
 TEXTURE & DETAIL PATTERNS:
@@ -462,42 +472,73 @@ METADATA PATTERNS:
 19. no_exif_noise - Image appears too clean / noiseless; no grain or compression artefacts
 20. watermark_remnants - Faint or partially removed watermarks from training data
 
-Provide a brief plain-English description of what the image shows (used as the seed for regeneration).
+Provide a detailed plain-English description of what the image shows, capturing:
+- For graphic_design/mixed: brand name, colour palette, layout structure, key UI elements, character description, typography style
+- For photograph: subject, setting, lighting, composition
+- For illustration: style, subject, colour palette, mood
 
 Return a JSON object with this EXACT structure:
 {
   "overall_score": 85,
+  "image_type": "graphic_design",
   "patterns_found": ["texture_soup", "perfect_symmetry", "malformed_hands"],
   "summary": "2-3 sentence explanation of why this image appears AI-generated, citing the most prominent patterns.",
-  "description": "A photorealistic portrait of a young woman with long auburn hair, wearing a white blouse, soft studio lighting, blurred green background."
+  "description": "A promotional marketing banner for 'CareerCraft AI' featuring a purple colour scheme, an illustrated female character in business attire, LinkedIn-style UI mockup elements, skill badges, and bold white brand text centered on a light background."
 }
 
 Rules:
 - "overall_score" must be a number 0-100
+- "image_type" must be one of: photograph, graphic_design, illustration, ui_screenshot, mixed
 - "patterns_found" must use the exact snake_case names listed above
-- "description" should be detailed enough to regenerate a similar image
+- "description" must be detailed enough to faithfully recreate the image's content, style, and structure
 - Be precise: only flag patterns that are genuinely present
 """
 
-IMAGE_HUMANIZE_SYSTEM = """You are an expert prompt engineer specialising in making AI-generated images look more authentically human.
+IMAGE_HUMANIZE_SYSTEM = """You are an expert prompt engineer specialising in making AI-generated images score LOWER on AI detection tools. Your goal is to produce prompts targeting under 30% AI detection score.
 
-Given an image description and its detected AI patterns, craft a new image generation prompt that will produce a result that looks LESS AI-generated.
+You will be given the image type, description, and detected AI patterns. You MUST apply the strategy matching the image type.
 
-Apply these anti-AI rules:
-- Add natural imperfections: slight asymmetry, real skin texture, natural lighting variation
-- Avoid cinematic/dramatic lighting - use flat, natural, or ambient light instead
-- Request authentic grain/noise like a real camera would have
-- Avoid overly saturated colours - request muted, natural tones
-- For portraits: add minor natural features (pores, slight asymmetry, natural hair flyaways)
-- Request candid/documentary framing rather than stock-photo composition
-- Avoid "perfect" or "beautiful" descriptors - use specific, grounded descriptors instead
-- Add specificity that AI training data lacks (e.g. specific time of day, specific real-world imperfections)
-- Reference real photographic styles (e.g. "shot on 35mm film", "documentary photo", "street photography")
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STRATEGY A: PHOTOGRAPH (image_type = photograph)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Apply ALL four techniques:
+1. IMPERFECTIONS: skin pores, freckles, asymmetric features, blemishes, wrinkled fabric, scuff marks, wear and tear
+2. NATURAL LIGHTING: one real light source with direction (e.g. "soft overcast window light from left"), ambient colour cast, realistic shadows
+3. CONTEXTUAL STORYTELLING: candid mid-action moment, specific real-world clutter, subject not posed or looking at camera
+4. CAMERA SETTINGS: real camera body + lens (e.g. "Fujifilm X-T4, 35mm f/2"), ISO grain, chromatic aberration, JPEG artefacts, natural vignetting
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STRATEGY B: GRAPHIC DESIGN / MIXED / ILLUSTRATION (image_type = graphic_design, mixed, illustration)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL: Preserve the original design's purpose, brand identity, layout, and content. Do NOT convert to a photograph.
+Apply these design-specific humanisation techniques:
+1. HAND-CRAFTED FEEL: describe it as "hand-drawn vector illustration", "editorial flat design", "indie brand graphic", "hand-lettered layout" -- avoid "digital render" or "3D"
+2. IMPERFECT TYPOGRAPHY: slightly irregular letter spacing, mixed font weights, organic baseline, as if manually composed
+3. MUTED HUMAN COLOUR PALETTE: replace neon/glowing colours with muted, desaturated equivalents (e.g. "dusty mauve" instead of "electric purple", "warm off-white" instead of "pure white")
+4. ILLUSTRATION IMPERFECTIONS: slight line weight variation, subtle ink bleed effect, mild paper texture or canvas grain overlay, uneven fill areas
+5. COMPOSITIONAL ASYMMETRY: slightly off-balance layout, elements not pixel-perfect aligned, slight rotation on secondary elements
+6. REAL-WORLD ANALOGY: describe as "scanned from a printed brand leaflet", "photographed agency mood board pinned to cork board", "torn from a design magazine"
+7. PRESERVE KEY BRAND ELEMENTS: keep the same brand name text, same colour family (just muted), same layout structure, same character/subject type
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STRATEGY C: UI SCREENSHOT (image_type = ui_screenshot)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Describe as a real screenshot from a slightly older OS or browser version
+2. Add minor UI inconsistencies: misaligned padding, slightly different font rendering
+3. Include real-world context: taskbar, notification badge, partial browser chrome
+4. Add screen photography artefacts if shown as photo: slight glare, moiré pattern, slight angle
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UNIVERSAL RULES (all types):
+- NEVER use: perfect, beautiful, stunning, breathtaking, cinematic, dramatic, ultra-detailed, hyperrealistic, 8K, masterpiece, glowing, neon
+- ALWAYS fix every detected AI pattern specifically
+- The prompt must be at least 120 words
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Return a JSON object:
 {
-  "prompt": "The full image generation prompt to use",
-  "changes_summary": "Brief description of what was changed to make it look less AI-generated"
+  "prompt": "The full detailed generation prompt applying the correct strategy",
+  "changes_summary": "Which strategy was used and what specific AI patterns were eliminated"
 }
 """
 
@@ -550,6 +591,17 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
     overall = float(result.get("overall_score", 50))
     result_id = str(uuid.uuid4())
 
+    # Persist original image to disk immediately (needed for humanize + display)
+    ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
+    orig_filename = f"original_{result_id}.{ext}"
+    orig_path = IMAGES_DIR / orig_filename
+    try:
+        orig_path.write_bytes(base64.b64decode(image_b64))
+    except Exception:
+        pass
+
+    image_url = f"/api/images/{orig_filename}"
+
     response = ImageAnalysisResponse(
         id=result_id,
         overall_score=round(overall, 1),
@@ -557,28 +609,24 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
         patterns_found=result.get("patterns_found", []),
         summary=result.get("summary", "Analysis complete."),
         description=result.get("description", ""),
+        image_type=result.get("image_type", "photograph"),
         filename=filename,
-        image_data=image_b64,
+        image_url=image_url,
         image_mime=mime_type,
     )
 
     response_dict = response.model_dump()
+    # Also store the local path for humanize to use
+    response_dict["original_image_path"] = str(orig_path)
     results_store[result_id] = response_dict
 
-    # Persist original image bytes and metadata to disk so humanize works after restart
+    # Persist metadata to disk (no image blob — just the URL + meta)
     try:
-        ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
-        orig_path = IMAGES_DIR / f"original_{result_id}.{ext}"
-        orig_path.write_bytes(base64.b64decode(image_b64))
-
-        # Save metadata without the large image_data blob
-        meta = {k: v for k, v in response_dict.items() if k != "image_data"}
-        meta["original_image_path"] = str(orig_path)
         meta_path = IMAGES_DIR / f"meta_{result_id}.json"
         with open(meta_path, "w") as mf:
-            json.dump(meta, mf)
+            json.dump(response_dict, mf)
     except Exception:
-        pass  # Non-critical — in-memory store is the primary source
+        pass
 
     return response
 
@@ -610,20 +658,186 @@ class ImageHumanizeRequest(BaseModel):
     result_id: str
 
 
-async def _run_humanize_job(job_id: str, result_id: str, analysis: dict):
-    """Background task: generate a humanised image and store result in jobs_store."""
+def humanise_postprocess(input_path: str, output_path: str) -> None:
+    """
+    Apply real-world image degradation to reduce AI detector scores.
+    Targets the pixel-level statistics and frequency artifacts that detectors measure.
+    Steps:
+      1. Subtle Poisson-like shot noise (mimics real camera sensor noise)
+      2. Slight chromatic aberration (1-2px lateral RGB channel shift)
+      3. Mild geometric lens distortion (barrel distortion ~0.5%)
+      4. Slight colour temperature variation (warm/cool cast)
+      5. JPEG re-compression at 78-85% quality (adds authentic DCT blocks)
+    """
+    from PIL import Image, ImageFilter
+    import numpy as np
+
+    img = Image.open(input_path).convert("RGB")
+    arr = np.array(img, dtype=np.float32)
+
+    # 1. Poisson-like shot noise — scales with pixel brightness (real sensor behaviour)
+    noise_scale = random.uniform(0.018, 0.032)
+    shot_noise = np.random.poisson(arr * noise_scale) / noise_scale * 0.15
+    arr = np.clip(arr + shot_noise, 0, 255)
+
+    # 2. Chromatic aberration — shift R channel right/down, B channel left/up by 1-2px
+    from PIL import Image as PILImage
+    img_noisy = PILImage.fromarray(arr.astype(np.uint8))
+    r, g, b = img_noisy.split()
+    shift_x = random.randint(1, 2)
+    shift_y = random.randint(0, 1)
+    # Shift red channel slightly right/down
+    r_shifted = PILImage.new("L", r.size, 0)
+    r_shifted.paste(r, (shift_x, shift_y))
+    # Shift blue channel slightly left/up
+    b_shifted = PILImage.new("L", b.size, 0)
+    b_shifted.paste(b, (-shift_x, -shift_y))
+    img_ca = PILImage.merge("RGB", (r_shifted, g, b_shifted))
+    arr = np.array(img_ca, dtype=np.float32)
+
+    # 3. Barrel lens distortion (subtle, ~0.4-0.7%)
+    h, w = arr.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+    k = random.uniform(0.004, 0.007)  # barrel distortion coefficient
+    y_coords, x_coords = np.mgrid[0:h, 0:w].astype(np.float32)
+    x_norm = (x_coords - cx) / cx
+    y_norm = (y_coords - cy) / cy
+    r_sq = x_norm ** 2 + y_norm ** 2
+    x_dist = x_norm * (1 + k * r_sq) * cx + cx
+    y_dist = y_norm * (1 + k * r_sq) * cy + cy
+    x_dist = np.clip(x_dist, 0, w - 1).astype(np.float32)
+    y_dist = np.clip(y_dist, 0, h - 1).astype(np.float32)
+    # Bilinear sampling
+    x0 = np.floor(x_dist).astype(int)
+    y0 = np.floor(y_dist).astype(int)
+    x1 = np.clip(x0 + 1, 0, w - 1)
+    y1 = np.clip(y0 + 1, 0, h - 1)
+    dx = (x_dist - x0)[..., np.newaxis]
+    dy = (y_dist - y0)[..., np.newaxis]
+    distorted = (
+        arr[y0, x0] * (1 - dx) * (1 - dy) +
+        arr[y0, x1] * dx * (1 - dy) +
+        arr[y1, x0] * (1 - dx) * dy +
+        arr[y1, x1] * dx * dy
+    )
+    arr = np.clip(distorted, 0, 255)
+
+    # 4. Slight colour temperature shift (warm or cool cast, subtle)
+    temp_direction = random.choice(["warm", "cool", "neutral"])
+    if temp_direction == "warm":
+        arr[:, :, 0] = np.clip(arr[:, :, 0] * random.uniform(1.01, 1.03), 0, 255)  # boost red
+        arr[:, :, 2] = np.clip(arr[:, :, 2] * random.uniform(0.97, 0.99), 0, 255)  # reduce blue
+    elif temp_direction == "cool":
+        arr[:, :, 2] = np.clip(arr[:, :, 2] * random.uniform(1.01, 1.03), 0, 255)  # boost blue
+        arr[:, :, 0] = np.clip(arr[:, :, 0] * random.uniform(0.97, 0.99), 0, 255)  # reduce red
+
+    # 5. Very subtle vignette (darkens edges slightly, mimics real lens falloff)
+    vy, vx = np.mgrid[0:h, 0:w].astype(np.float32)
+    vx_norm = (vx - cx) / cx
+    vy_norm = (vy - cy) / cy
+    vignette = 1.0 - random.uniform(0.04, 0.08) * (vx_norm ** 2 + vy_norm ** 2)
+    vignette = np.clip(vignette, 0.85, 1.0)[..., np.newaxis]
+    arr = np.clip(arr * vignette, 0, 255)
+
+    # 6. JPEG re-compression at 78-85% quality (introduces authentic DCT block artifacts)
+    final_img = Image.fromarray(arr.astype(np.uint8), "RGB")
+    quality = random.randint(78, 85)
+    buf = io.BytesIO()
+    final_img.save(buf, format="JPEG", quality=quality, optimize=True)
+    buf.seek(0)
+    # Save as PNG but with JPEG-compressed data baked in (re-decode then save)
+    result_img = Image.open(buf).convert("RGB")
+    result_img.save(output_path, format="PNG", optimize=True)
+
+
+def _run_humanize_job(job_id: str, result_id: str, analysis: dict):
+    """Background task (sync): generate a humanised image and store result in jobs_store."""
     try:
         description = analysis.get("description", "")
         patterns = analysis.get("patterns_found", [])
         original_score = analysis.get("overall_score", 50)
 
+        image_type = analysis.get("image_type", "photograph")
+
+        # Build pattern-specific fix guidance
+        pattern_fixes = {
+            "texture_soup": "→ Replace chaotic texture blending with a single coherent real-world surface material",
+            "perfect_symmetry": "→ Deliberately break symmetry: off-centre composition, uneven framing, candid angle",
+            "uncanny_smoothness": "→ Add skin pores, fabric weave, surface grain, material roughness",
+            "repetitive_patterns": "→ Introduce variation and irregularity in any repeated elements",
+            "inconsistent_lighting": "→ Specify a single real light source with consistent direction and shadows",
+            "impossible_reflections": "→ Remove or correct any reflections to match real physics",
+            "malformed_hands": "→ Keep hands out of frame or describe 'hands naturally at sides, not visible'",
+            "text_gibberish": "→ Remove all text OR specify exact legible text content explicitly",
+            "ear_deformity": "→ Describe hair covering ears or keep face at angle where ears are not prominent",
+            "jewellery_artifacts": "→ Remove jewellery or describe it simply: 'plain silver stud earrings'",
+            "background_incoherence": "→ Describe a specific real-world background with named location details",
+            "floating_elements": "→ Ensure all objects are grounded with contact shadows and physical support",
+            "painterly_haze": "→ Use sharp clarity with no soft-focus glow or artistic blur",
+            "oversaturation": "→ Replace vivid/neon colours with muted, desaturated, natural tones",
+            "dramatic_lighting": "→ Replace with flat ambient or natural diffused lighting from one source",
+            "stock_photo_composition": "→ Use candid framing -- subject not looking at camera, caught mid-task",
+            "generic_aesthetic": "→ Add hyper-specific real-world details to break the generic idealised look",
+            "depth_of_field_abuse": "→ Use deeper depth of field -- keep more of the scene in focus",
+            "no_exif_noise": "→ Specify camera sensor noise, ISO grain, and real photographic artefacts",
+            "watermark_remnants": "→ Ensure no watermark-like elements appear anywhere",
+        }
+
+        # Graphic design / illustration / mixed: add design-preservation guidance
+        if image_type in ("graphic_design", "mixed", "illustration"):
+            design_fixes = {
+                "texture_soup": "→ Use flat, clean vector fills with slight paper grain texture overlay",
+                "perfect_symmetry": "→ Slightly off-balance layout, elements not pixel-perfect, minor rotation on secondary items",
+                "uncanny_smoothness": "→ Add subtle ink bleed, slight line weight variation, mild canvas grain",
+                "oversaturation": "→ Desaturate all colours to muted equivalents (e.g. dusty mauve, warm beige, slate blue)",
+                "dramatic_lighting": "→ Use flat editorial lighting or no lighting effect at all",
+                "stock_photo_composition": "→ Asymmetric layout, white space variation, organic element placement",
+                "generic_aesthetic": "→ Add brand-specific idiosyncrasies and real-world printing artefacts",
+                "no_exif_noise": "→ Add subtle paper texture, slight print halftone, mild scan grain",
+                "painterly_haze": "→ Use crisp editorial line work with no glow or haze",
+            }
+            for k, v in design_fixes.items():
+                pattern_fixes[k] = v
+
+        pattern_guidance = ""
+        if patterns:
+            pattern_guidance = "\n\nSPECIFIC PATTERNS TO FIX:\n"
+            for p in patterns:
+                if p in pattern_fixes:
+                    pattern_guidance += f"- {p.replace('_', ' ').title()}: {pattern_fixes[p]}\n"
+
+        # Strategy-specific instructions
+        if image_type in ("graphic_design", "mixed", "illustration"):
+            strategy_instruction = f"""IMAGE TYPE: {image_type} — USE STRATEGY B (design preservation)
+
+CRITICAL: This is a {image_type}. Do NOT convert it to a photograph. Keep the same:
+- Brand name and any text content (reproduce exactly: {description[:200] if description else 'see description'})
+- Overall layout structure and composition
+- Subject type (illustrated character, mascot, etc.)
+- Colour family (just muted/desaturated versions)
+- Purpose (marketing banner, poster, etc.)
+
+Apply Strategy B: hand-crafted feel, muted palette, slight imperfections, real-world print/scan analogy."""
+        elif image_type == "ui_screenshot":
+            strategy_instruction = "IMAGE TYPE: ui_screenshot — USE STRATEGY C (screenshot realism)"
+        else:
+            strategy_instruction = "IMAGE TYPE: photograph — USE STRATEGY A (candid photography)"
+
         humanize_prompt = f"""Original image description:
 {description}
 
-Detected AI patterns: {', '.join(patterns) if patterns else 'none specific'}
-Original AI score: {original_score}/100
+{strategy_instruction}
 
-Craft a new image generation prompt that will produce a similar image but looking MORE human/authentic and LESS AI-generated.
+Detected AI patterns: {', '.join(p.replace('_', ' ') for p in patterns) if patterns else 'none specific'}
+Original AI detection score: {original_score}/100 — TARGET: reduce to below 30/100
+{pattern_guidance}
+
+Craft a detailed generation prompt that:
+1. Applies the correct strategy for this image type
+2. Fixes every detected pattern listed above
+3. Preserves the original image's content, purpose, and structure
+4. Is at least 120 words
+5. Does NOT use: perfect, beautiful, stunning, cinematic, dramatic, ultra-detailed, hyperrealistic, 8K, masterpiece, glowing, neon
 """
 
         prompt_result = chat_json(humanize_prompt, model="ninja-complex", system=IMAGE_HUMANIZE_SYSTEM)
@@ -640,13 +854,40 @@ Craft a new image generation prompt that will produce a similar image but lookin
             output=output_path,
         )
 
-        # Re-analyse new image for score (skip to save time if file is large)
+        # Post-process: apply real-world degradation to reduce AI detector fingerprints
+        try:
+            pp_filename = f"humanized_{result_id}.png"
+            pp_path = str(IMAGES_DIR / pp_filename)
+            humanise_postprocess(output_path, pp_path)
+        except Exception as pp_err:
+            # If post-processing fails, keep the raw generated image
+            pass
+
+        # Re-analyse new image for score using sync chat call
         new_score = original_score
         try:
             with open(output_path, "rb") as f:
                 new_image_b64 = base64.b64encode(f.read()).decode("utf-8")
-            reanalysis = await analyse_image_data(new_image_b64, "image/png", output_filename)
-            new_score = reanalysis.overall_score
+            # Use chat_messages directly (sync) for re-analysis
+            reanalysis_messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{new_image_b64}"},
+                        },
+                        {"type": "text", "text": IMAGE_ANALYSIS_PROMPT},
+                    ],
+                }
+            ]
+            raw = chat_messages(reanalysis_messages, model="ninja-cline-complex")
+            if raw:
+                import re as _re
+                json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    new_score = float(parsed.get("overall_score", original_score))
         except Exception:
             pass
 
@@ -691,13 +932,6 @@ async def humanize_image_endpoint(request: ImageHumanizeRequest, background_task
     if analysis.get("input_type") != "image":
         raise HTTPException(status_code=400, detail="This result is not an image analysis.")
 
-    # Reload image bytes from disk if needed
-    if not analysis.get("image_data"):
-        orig_path = analysis.get("original_image_path")
-        if orig_path and Path(orig_path).exists():
-            analysis["image_data"] = base64.b64encode(Path(orig_path).read_bytes()).decode()
-            analysis["image_mime"] = analysis.get("image_mime", "image/png")
-
     job_id = str(uuid.uuid4())
     jobs_store[job_id] = {"status": "processing"}
 
@@ -722,6 +956,15 @@ async def humanize_image_status(job_id: str):
 
 @app.get("/api/results/image/{result_id}")
 def get_image_result(result_id: str):
+    if result_id not in results_store:
+        # Try loading from disk (survives backend restarts)
+        meta_path = IMAGES_DIR / f"meta_{result_id}.json"
+        if meta_path.exists():
+            try:
+                with open(meta_path, "r") as f:
+                    results_store[result_id] = json.load(f)
+            except Exception:
+                pass
     if result_id not in results_store:
         raise HTTPException(status_code=404, detail="Result not found")
     return results_store[result_id]

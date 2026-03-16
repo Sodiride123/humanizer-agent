@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Logo } from "@/components/Logo";
 import {
   getImageResult,
   humanizeImage,
@@ -23,7 +24,6 @@ function getGaugeGradient(score: number): [string, string] {
 
 function ScoreGauge({ score }: { score: number }) {
   const circumference = 2 * Math.PI * 100;
-  const offset = circumference - (score / 100) * circumference;
   const [c1, c2] = getGaugeGradient(score);
 
   return (
@@ -81,6 +81,22 @@ const PATTERN_LABELS: Record<string, string> = {
   watermark_remnants: "Watermark Remnants",
 };
 
+const IMAGE_TYPE_LABELS: Record<string, string> = {
+  photograph: "📷 Photograph",
+  graphic_design: "🎨 Graphic Design",
+  illustration: "✏️ Illustration",
+  ui_screenshot: "🖥️ UI Screenshot",
+  mixed: "🔀 Mixed",
+};
+
+const HUMANIZE_STRATEGY_LABELS: Record<string, string> = {
+  photograph: "Candid photography strategy",
+  graphic_design: "Design preservation strategy",
+  illustration: "Design preservation strategy",
+  ui_screenshot: "Screenshot realism strategy",
+  mixed: "Design preservation strategy",
+};
+
 const PATTERN_CATEGORIES: Record<string, string[]> = {
   "Texture & Detail": ["texture_soup", "perfect_symmetry", "uncanny_smoothness", "repetitive_patterns", "inconsistent_lighting", "impossible_reflections"],
   "Structural": ["malformed_hands", "text_gibberish", "ear_deformity", "jewellery_artifacts", "background_incoherence", "floating_elements"],
@@ -98,16 +114,10 @@ export default function ImageResultPage() {
   const [humanized, setHumanized] = useState<ImageHumanizeResult | null>(null);
   const [humanizeError, setHumanizeError] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
-  const [downloadReady, setDownloadReady] = useState(false);
 
   useEffect(() => {
     const id = params.id as string;
-    const cached = sessionStorage.getItem(`img-result-${id}`);
-    if (cached) {
-      setResult(JSON.parse(cached));
-      setLoading(false);
-      return;
-    }
+    // Always fetch from backend — no sessionStorage for images (avoids quota issues)
     getImageResult(id)
       .then(setResult)
       .catch(() => setError("Result not found"))
@@ -121,7 +131,6 @@ export default function ImageResultPage() {
     try {
       const res = await humanizeImage(result.id);
       setHumanized(res);
-      setDownloadReady(true);
     } catch (e) {
       setHumanizeError(e instanceof Error ? e.message : "Humanization failed");
     } finally {
@@ -146,7 +155,7 @@ export default function ImageResultPage() {
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
             <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" className="opacity-75"/>
           </svg>
-          <p style={{ color: "var(--text-secondary)" }}>Analysing image...</p>
+          <p style={{ color: "var(--text-secondary)" }}>Loading analysis...</p>
         </div>
       </div>
     );
@@ -173,10 +182,8 @@ export default function ImageResultPage() {
       <header className="h-16 flex items-center px-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="max-w-[1200px] mx-auto w-full flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white" style={{ background: "var(--accent-action)" }}>
-              H
-            </div>
-            <span className="text-xl font-bold text-white">Humaniser</span>
+            <Logo size={32} />
+            <span className="text-xl font-bold text-white">Humanizer</span>
           </div>
           <button
             onClick={() => router.push("/")}
@@ -218,6 +225,17 @@ export default function ImageResultPage() {
               <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
                 {patternsFound.length} AI pattern{patternsFound.length !== 1 ? "s" : ""} detected
               </p>
+              {result.image_type && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs px-2 py-1 rounded-full font-medium"
+                    style={{ background: "rgba(108,92,231,0.15)", color: "var(--accent-action)", border: "1px solid rgba(108,92,231,0.3)" }}>
+                    {IMAGE_TYPE_LABELS[result.image_type] || result.image_type}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    → {HUMANIZE_STRATEGY_LABELS[result.image_type] || "Style-aware strategy"}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Summary */}
@@ -251,7 +269,7 @@ export default function ImageResultPage() {
               </div>
               <div className="px-4 pb-4">
                 <img
-                  src={`data:${result.image_mime};base64,${result.image_data}`}
+                  src={result.image_url}
                   alt="Uploaded image"
                   className="w-full rounded-lg object-contain max-h-[400px]"
                   style={{ background: "var(--bg-primary)" }}
@@ -393,7 +411,7 @@ export default function ImageResultPage() {
                     <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{humanized.original_score}% AI</span>
                   </div>
                   <img
-                    src={`data:${result.image_mime};base64,${result.image_data}`}
+                    src={result.image_url}
                     alt="Original"
                     className="w-full object-contain max-h-[320px]"
                     style={{ background: "var(--bg-primary)" }}
@@ -468,7 +486,7 @@ export default function ImageResultPage() {
       </main>
 
       <footer className="py-4 text-center text-sm" style={{ color: "var(--text-secondary)", borderTop: "1px solid var(--border-subtle)" }}>
-        Humaniser — AI Content Authenticity Detector
+        Humanizer — AI Content Authenticity Detector
       </footer>
     </div>
   );

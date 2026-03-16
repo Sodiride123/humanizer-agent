@@ -100,8 +100,9 @@ export interface ImageAnalysisResult {
   patterns_found: string[];
   summary: string;
   description: string;
+  image_type: string;  // photograph, graphic_design, illustration, ui_screenshot, mixed
   filename: string;
-  image_data: string;
+  image_url: string;   // relative URL e.g. /api/images/original_xxx.png
   image_mime: string;
   input_type: "image";
 }
