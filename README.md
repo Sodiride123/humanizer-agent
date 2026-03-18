@@ -8,8 +8,12 @@ Humanizer analyses your content for AI fingerprints, then rewrites or regenerate
 
 ## ✨ Features
 
+- **Text Detection** — Analyse text for AI fingerprints using a 24-pattern detection system
 - **Text Humanization** — Paste AI-generated text, get a rewritten version with lower AI detection scores
+- **Image Detection** — Upload images to detect AI-generated patterns across textures, lighting, and more
 - **Image Humanization** — Upload an AI-generated image, get a regenerated version with pixel-level post-processing to reduce AI fingerprints
+- **File Upload** — Supports .txt, .md, .docx, and .pdf file uploads with server-side text extraction
+- **URL Extraction** — Paste a URL to extract and analyse text content from public web pages
 - **Style-Aware Prompting** — Detects image type (photograph, graphic design, illustration, UI screenshot) and applies the right humanization strategy
 - **Post-Processing Pipeline** — 6-step pixel-level pipeline applied after generation: shot noise, chromatic aberration, barrel distortion, colour temperature shift, vignette, and JPEG recompression
 - **AI Score Tracking** — Shows before/after AI detection scores for every result
@@ -100,22 +104,30 @@ humaniser-agent/
 
 - Python 3.11+
 - Node.js 20+
-- LiteLLM-compatible API key (OpenAI, Anthropic, etc.)
+- LiteLLM-compatible API key (configured via `settings.json` or environment variables)
 
-### 1. Backend
+### Option A — Using scripts
 
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+# First time: install all dependencies
+bash setup.sh
+
+# Start the app
+bash start.sh
 ```
 
-### 2. Frontend
+### Option B — Manual
 
 ```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# Frontend (in a separate terminal)
 cd frontend
 npm install
-npm run dev
+npm run dev -- -H 0.0.0.0
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
