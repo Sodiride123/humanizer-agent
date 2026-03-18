@@ -17,7 +17,7 @@ nohup uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/humanizer-backend.log 2
 
 echo "=== Starting frontend on port 3000 ==="
 cd "$REPO_DIR/frontend"
-nohup npm run dev -- -H 0.0.0.0 > /tmp/humanizer-frontend.log 2>&1 &
+nohup npm start -- -H 0.0.0.0 > /tmp/humanizer-frontend.log 2>&1 &
 
 # Wait for services to come up
 echo "=== Waiting for services ==="

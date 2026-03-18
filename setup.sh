@@ -15,5 +15,9 @@ cd "$REPO_DIR/frontend"
 npm install
 
 echo ""
+echo "=== Building frontend for production ==="
+npm run build
+
+echo ""
 echo "=== Setup complete ==="
-echo "All dependencies installed. You can now run: bash start.sh"
+echo "All dependencies installed and frontend built. You can now run: bash start.sh"
