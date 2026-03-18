@@ -1047,21 +1047,34 @@ def health():
     return {"status": "ok", "service": "ai-content-detector", "version": "2.1.0"}
 
 
-@app.post("/api/analyze/text", response_model=AnalysisResponse)
-async def analyze_text_endpoint(request: TextAnalysisRequest):
-    try:
-        return await analyze_text(request.text)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="The text is too long to analyse in one go. Please try with a shorter passage (under 10,000 words works best)."
-        )
+@app.post("/api/analyze/text")
+async def analyze_text_endpoint(request: TextAnalysisRequest, background_tasks: BackgroundTasks):
+    """Start text analysis as a background job. Returns a job_id to poll."""
+    job_id = str(uuid.uuid4())
+    jobs_store[job_id] = {"status": "processing"}
+
+    async def _run_analysis(jid: str, text: str):
+        try:
+            result = await analyze_text(text)
+            jobs_store[jid] = {"status": "done", "result": result.model_dump()}
+        except Exception as e:
+            detail = getattr(e, 'detail', str(e))
+            jobs_store[jid] = {"status": "error", "error": detail}
+
+    background_tasks.add_task(_run_analysis, job_id, request.text)
+    return {"job_id": job_id, "status": "processing"}
+
+
+@app.get("/api/analyze/text/status/{job_id}")
+async def analyze_text_status(job_id: str):
+    job = jobs_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @app.post("/api/upload-file")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
     """Extract text from uploaded .txt, .md, .docx, or .pdf files and analyze."""
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".txt", ".md", ".docx", ".pdf"):
@@ -1088,16 +1101,26 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Could not extract enough text from file")
     text = text[:50000]
 
-    result = await analyze_text(text)
-    result_dict = result.model_dump()
-    result_dict["input_type"] = "file"
-    result_dict["source_file"] = file.filename
-    results_store[result_dict["id"]] = result_dict
-    return result_dict
+    job_id = str(uuid.uuid4())
+    jobs_store[job_id] = {"status": "processing"}
+
+    async def _run(jid, txt, fname):
+        try:
+            result = await analyze_text(txt)
+            rd = result.model_dump()
+            rd["input_type"] = "file"
+            rd["source_file"] = fname
+            results_store[rd["id"]] = rd
+            jobs_store[jid] = {"status": "done", "result": rd}
+        except Exception as e:
+            jobs_store[jid] = {"status": "error", "error": getattr(e, 'detail', str(e))}
+
+    background_tasks.add_task(_run, job_id, text, file.filename)
+    return {"job_id": job_id, "status": "processing"}
 
 
 @app.post("/api/extract-url")
-async def extract_url(request: URLExtractRequest):
+async def extract_url(request: URLExtractRequest, background_tasks: BackgroundTasks = None):
     """Fetch text content from a URL and analyze it."""
     try:
         headers = {"User-Agent": "Mozilla/5.0 (AI Content Detector Bot)"}
@@ -1149,12 +1172,23 @@ async def extract_url(request: URLExtractRequest):
 
     extracted_text = extracted_text[:50000]
 
-    result = await analyze_text(extracted_text)
-    result_dict = result.model_dump()
-    result_dict["input_type"] = "url"
-    result_dict["source_url"] = request.url
-    results_store[result_dict["id"]] = result_dict
-    return result_dict
+    job_id = str(uuid.uuid4())
+    jobs_store[job_id] = {"status": "processing"}
+    url = request.url
+
+    async def _run(jid, txt, src_url):
+        try:
+            result = await analyze_text(txt)
+            rd = result.model_dump()
+            rd["input_type"] = "url"
+            rd["source_url"] = src_url
+            results_store[rd["id"]] = rd
+            jobs_store[jid] = {"status": "done", "result": rd}
+        except Exception as e:
+            jobs_store[jid] = {"status": "error", "error": getattr(e, 'detail', str(e))}
+
+    background_tasks.add_task(_run, job_id, extracted_text, url)
+    return {"job_id": job_id, "status": "processing"}
 
 
 @app.get("/api/results/{result_id}", response_model=AnalysisResponse)
