@@ -49,13 +49,13 @@ app.mount("/api/images", StaticFiles(directory=str(IMAGES_DIR)), name="generated
 # --- Models ---
 
 class TextAnalysisRequest(BaseModel):
-    text: str = Field(..., min_length=10, max_length=50000)
+    text: str = Field(..., min_length=10, max_length=100000)
 
 class URLExtractRequest(BaseModel):
     url: str
 
 class HumanizeRequest(BaseModel):
-    text: str = Field(..., min_length=10, max_length=50000)
+    text: str = Field(..., min_length=10, max_length=100000)
     result_id: Optional[str] = None
     iteration: int = Field(default=1, ge=1, le=5)
 
@@ -198,36 +198,89 @@ TEXT TO ANALYZE:
 """
 
 
+BATCH_SIZE = 40  # max sentences per LLM call to keep JSON output within token limits
+
+
+def _analyze_batch(batch_text: str) -> dict:
+    """Analyze a single batch of text, returning the parsed JSON result."""
+    prompt = ANALYSIS_PROMPT + batch_text
+    return chat_json(prompt, model="claude-sonnet-4-6", max_tokens=8192)
+
+
 async def analyze_text(text: str) -> AnalysisResponse:
-    """Analyze text for AI content using LLM with 24-pattern detection."""
+    """Analyze text for AI content using LLM with 24-pattern detection.
+    Long documents are split into batches and analyzed in parallel."""
+    # Truncate very long text to avoid excessive processing
+    if len(text) > 50000:
+        text = text[:50000]
+
     sentences = split_sentences(text)
     if not sentences:
         raise HTTPException(status_code=400, detail="No valid sentences found in input")
 
-    prompt = ANALYSIS_PROMPT + text
+    # Cap sentence count to keep response times reasonable
+    if len(sentences) > 300:
+        sentences = sentences[:300]
+        text = " ".join(sentences)
 
-    try:
-        result = chat_json(prompt, model="ninja-standard")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    # For short texts, single call
+    if len(sentences) <= BATCH_SIZE:
+        try:
+            result = chat_json(ANALYSIS_PROMPT + text, model="claude-sonnet-4-6", max_tokens=8192)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        if not result or "sentences" not in result:
+            raise HTTPException(status_code=500, detail="Invalid analysis response")
+        all_results = [result]
+    else:
+        # Split into batches and analyze concurrently
+        batches = []
+        for i in range(0, len(sentences), BATCH_SIZE):
+            batch_sentences = sentences[i:i + BATCH_SIZE]
+            batches.append(" ".join(batch_sentences))
 
-    if not result or "sentences" not in result:
-        raise HTTPException(status_code=500, detail="Invalid analysis response")
+        loop = asyncio.get_event_loop()
+        try:
+            tasks = [loop.run_in_executor(None, _analyze_batch, batch) for batch in batches]
+            all_results = await asyncio.gather(*tasks)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
+        # Validate all batches returned sentences
+        for r in all_results:
+            if not r or "sentences" not in r:
+                raise HTTPException(status_code=500, detail="Invalid analysis response from batch")
+
+    # Merge all batch results
     result_id = str(uuid.uuid4())
     sentence_results = []
-    for s in result.get("sentences", []):
-        score = float(s.get("score", 50))
-        sentence_results.append(SentenceResult(
-            text=s.get("text", ""),
-            score=score,
-            label=s.get("label", "ai" if score >= 50 else "human"),
-            patterns=s.get("patterns", []),
-        ))
+    all_patterns = set()
 
-    overall = float(result.get("overall_score", 50))
-    summary = result.get("summary", "Analysis complete.")
-    patterns_found = result.get("patterns_found", [])
+    for result in all_results:
+        for s in result.get("sentences", []):
+            score = float(s.get("score", 50))
+            sentence_results.append(SentenceResult(
+                text=s.get("text", ""),
+                score=score,
+                label=s.get("label", "ai" if score >= 50 else "human"),
+                patterns=s.get("patterns", []),
+            ))
+            all_patterns.update(s.get("patterns", []))
+
+    # Compute overall score as weighted average across all sentences
+    if sentence_results:
+        overall = sum(s.score for s in sentence_results) / len(sentence_results)
+    else:
+        overall = 50.0
+
+    # Merge summaries from all batches
+    summaries = [r.get("summary", "") for r in all_results if r.get("summary")]
+    if len(summaries) == 1:
+        summary = summaries[0]
+    elif summaries:
+        summary = summaries[0]  # Use first batch summary as primary
+    else:
+        summary = "Analysis complete."
 
     response = AnalysisResponse(
         id=result_id,
@@ -237,7 +290,7 @@ async def analyze_text(text: str) -> AnalysisResponse:
         summary=summary,
         input_type="text",
         word_count=len(text.split()),
-        patterns_found=patterns_found,
+        patterns_found=sorted(all_patterns),
     )
 
     # Store for later retrieval
@@ -569,7 +622,7 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
     ]
 
     try:
-        raw = chat_messages(messages, model="ninja-complex", max_tokens=2048, temperature=0.0)
+        raw = chat_messages(messages, model="claude-sonnet-4-6", max_tokens=2048, temperature=0.0)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")
 
@@ -634,7 +687,7 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
 @app.post("/api/analyze/image", response_model=ImageAnalysisResponse)
 async def analyze_image_endpoint(file: UploadFile = File(...)):
     """Upload an image and analyse it for AI-generation patterns."""
-    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
     content_type = file.content_type or "image/jpeg"
     if content_type not in allowed_types:
         guessed, _ = mimetypes.guess_type(file.filename or "")
@@ -643,12 +696,31 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported image type '{content_type}'. Supported: JPEG, PNG, WebP, GIF"
+                detail=f"Unsupported image type '{content_type}'. Supported: JPEG, PNG, WebP"
             )
 
     raw_bytes = await file.read()
-    if len(raw_bytes) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image too large. Maximum size is 10MB.")
+    if len(raw_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large. Maximum size is 20MB.")
+
+    # Base64 encoding inflates size by ~33%, so 3.75MB raw → ~5MB base64
+    # Compress to stay under the 5MB API limit after encoding
+    MAX_API_BYTES = 3_700_000
+    if len(raw_bytes) > MAX_API_BYTES:
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(raw_bytes)).convert("RGB")
+        # Resize if very large (e.g. 8000x6000 → proportionally smaller)
+        max_dim = 4096
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
+        # Compress as JPEG with decreasing quality until under limit
+        for quality in (85, 75, 65, 50):
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality)
+            if buf.tell() <= MAX_API_BYTES:
+                break
+        raw_bytes = buf.getvalue()
+        content_type = "image/jpeg"
 
     image_b64 = base64.b64encode(raw_bytes).decode("utf-8")
     return await analyse_image_data(image_b64, content_type, file.filename or "image")
@@ -840,7 +912,7 @@ Craft a detailed generation prompt that:
 5. Does NOT use: perfect, beautiful, stunning, cinematic, dramatic, ultra-detailed, hyperrealistic, 8K, masterpiece, glowing, neon
 """
 
-        prompt_result = chat_json(humanize_prompt, model="ninja-complex", system=IMAGE_HUMANIZE_SYSTEM)
+        prompt_result = chat_json(humanize_prompt, model="claude-sonnet-4-6", system=IMAGE_HUMANIZE_SYSTEM)
         new_prompt = prompt_result.get("prompt", description)
         changes_summary = prompt_result.get("changes_summary", "Applied anti-AI humanisation rules.")
 
@@ -881,7 +953,7 @@ Craft a detailed generation prompt that:
                     ],
                 }
             ]
-            raw = chat_messages(reanalysis_messages, model="ninja-cline-complex")
+            raw = chat_messages(reanalysis_messages, model="claude-sonnet-4-6")
             if raw:
                 import re as _re
                 json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
@@ -977,7 +1049,51 @@ def health():
 
 @app.post("/api/analyze/text", response_model=AnalysisResponse)
 async def analyze_text_endpoint(request: TextAnalysisRequest):
-    return await analyze_text(request.text)
+    try:
+        return await analyze_text(request.text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail="The text is too long to analyse in one go. Please try with a shorter passage (under 10,000 words works best)."
+        )
+
+
+@app.post("/api/upload-file")
+async def upload_file(file: UploadFile = File(...)):
+    """Extract text from uploaded .txt, .md, .docx, or .pdf files and analyze."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".txt", ".md", ".docx", ".pdf"):
+        raise HTTPException(status_code=400, detail="Unsupported file type. Please upload .txt, .md, .docx, or .pdf")
+
+    raw = await file.read()
+
+    if ext in (".txt", ".md"):
+        text = raw.decode("utf-8", errors="replace")
+    elif ext == ".docx":
+        import docx
+        doc = docx.Document(io.BytesIO(raw))
+        text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    elif ext == ".pdf":
+        import fitz
+        pdf = fitz.open(stream=raw, filetype="pdf")
+        text = "\n".join(page.get_text() for page in pdf)
+        pdf.close()
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    text = text.strip()
+    if len(text) < 10:
+        raise HTTPException(status_code=400, detail="Could not extract enough text from file")
+    text = text[:50000]
+
+    result = await analyze_text(text)
+    result_dict = result.model_dump()
+    result_dict["input_type"] = "file"
+    result_dict["source_file"] = file.filename
+    results_store[result_dict["id"]] = result_dict
+    return result_dict
 
 
 @app.post("/api/extract-url")
@@ -987,8 +1103,19 @@ async def extract_url(request: URLExtractRequest):
         headers = {"User-Agent": "Mozilla/5.0 (AI Content Detector Bot)"}
         resp = requests.get(request.url, headers=headers, timeout=15)
         resp.raise_for_status()
+    except requests.Timeout:
+        raise HTTPException(status_code=400, detail="The website took too long to respond. Please try a different URL.")
+    except requests.ConnectionError:
+        raise HTTPException(status_code=400, detail="Could not connect to that website. Please check the URL and try again.")
     except requests.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+        status = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+        if status == 403:
+            raise HTTPException(status_code=400, detail="This website blocked our request. Please try copying and pasting the text directly instead.")
+        elif status == 404:
+            raise HTTPException(status_code=400, detail="Page not found. Please check the URL and try again.")
+        elif status and status >= 500:
+            raise HTTPException(status_code=400, detail="The website is experiencing issues. Please try again later or paste the text directly.")
+        raise HTTPException(status_code=400, detail="Could not fetch that URL. Please try a different one or paste the text directly.")
 
     # Extract text from HTML
     from html.parser import HTMLParser
@@ -1018,7 +1145,7 @@ async def extract_url(request: URLExtractRequest):
     extracted_text = " ".join(extractor.text_parts)
 
     if len(extracted_text) < 10:
-        raise HTTPException(status_code=400, detail="Could not extract enough text from URL")
+        raise HTTPException(status_code=400, detail="We couldn't extract readable text from this URL. The page may require JavaScript or a login. Please try a different URL or paste the text directly.")
 
     extracted_text = extracted_text[:50000]
 
@@ -1064,7 +1191,7 @@ async def humanize_text(request: HumanizeRequest):
     prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
     try:
-        result = chat_json(prompt, model="ninja-standard")
+        result = chat_json(prompt, model="claude-sonnet-4-6")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Humanization failed: {str(e)}")
 

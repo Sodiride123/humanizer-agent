@@ -72,3 +72,13 @@ logs/
 config/settings_arash.json
 settings_arash.json
 settings.json
+
+# Claude Code
+.claude/
+
+# Generated images (runtime artifacts)
+generated_image.png
+
+# Node
+frontend/node_modules/
+frontend/.next/

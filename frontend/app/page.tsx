@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { analyzeText, analyzeUrl, analyzeImage, AnalysisResult } from "@/lib/api";
+import { analyzeText, analyzeUrl, analyzeFile, analyzeImage, AnalysisResult } from "@/lib/api";
 import { Logo } from "@/components/Logo";
 
 type InputMode = "paste" | "upload" | "url" | "image";
@@ -16,7 +16,32 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  // Check if any input mode has content
+  const hasTextContent = text.trim().length > 0;
+  const hasUrlContent = url.trim().length > 0;
+  const hasUploadContent = uploadFile !== null;
+  const hasImageContent = imageFile !== null;
+  const hasAnyContent = hasTextContent || hasUrlContent || hasUploadContent || hasImageContent;
+
+  const clearAllInputs = () => {
+    setText("");
+    setUrl("");
+    setUploadFile(null);
+    setImageFile(null);
+    setImagePreview("");
+    setError("");
+  };
+
+  const switchMode = (m: InputMode) => {
+    if (m === mode) return;
+    // If current mode has content, don't allow switching
+    if (hasAnyContent) return;
+    setMode(m);
+    setError("");
+  };
 
   const handleAnalyze = async () => {
     setError("");
@@ -36,7 +61,24 @@ export default function Home() {
       }
 
       let result: AnalysisResult;
-      if (mode === "url") {
+      if (mode === "upload") {
+        if (!uploadFile && (!text.trim() || text.trim().length < 10)) {
+          setError("Please select a file to upload");
+          setLoading(false);
+          return;
+        }
+        if (uploadFile) {
+          const ext = uploadFile.name.split(".").pop()?.toLowerCase();
+          if (ext === "docx" || ext === "pdf") {
+            result = await analyzeFile(uploadFile);
+          } else {
+            // .txt/.md already read into text state
+            result = await analyzeText(text.trim());
+          }
+        } else {
+          result = await analyzeText(text.trim());
+        }
+      } else if (mode === "url") {
         if (!url.trim()) {
           setError("Please enter a URL");
           setLoading(false);
@@ -60,42 +102,50 @@ export default function Home() {
     }
   };
 
+  const allowedDocExts = [".txt", ".md", ".docx", ".pdf"];
+
   const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
     const file = e.dataTransfer.files[0];
-    if (file && (file.type === "text/plain" || file.name.endsWith(".txt") || file.name.endsWith(".md"))) {
+    if (!file) return;
+    const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
+    if (!allowedDocExts.includes(ext)) {
+      setError("Please upload a .txt, .md, .docx, or .pdf file");
+      return;
+    }
+    setUploadFile(file);
+    if (ext === ".txt" || ext === ".md") {
       const reader = new FileReader();
-      reader.onload = (ev) => {
-        setText(ev.target?.result as string);
-        setMode("paste");
-      };
+      reader.onload = (ev) => setText(ev.target?.result as string);
       reader.readAsText(file);
     } else {
-      setError("Please upload a .txt or .md file");
+      setText("");
     }
   }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) return;
+    const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
+    setUploadFile(file);
+    if (ext === ".txt" || ext === ".md") {
       const reader = new FileReader();
-      reader.onload = (ev) => {
-        setText(ev.target?.result as string);
-        setMode("paste");
-      };
+      reader.onload = (ev) => setText(ev.target?.result as string);
       reader.readAsText(file);
+    } else {
+      setText("");
     }
   };
 
   const handleImageFile = (file: File) => {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.type)) {
-      setError("Please upload a JPEG, PNG, WebP, or GIF image");
+      setError("Please upload a JPEG, PNG, or WebP image");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Image must be under 10MB");
+    if (file.size > 20 * 1024 * 1024) {
+      setError("Image must be under 20MB");
       return;
     }
     setImageFile(file);
@@ -131,26 +181,29 @@ export default function Home() {
       <main className="flex-1 max-w-[1200px] mx-auto px-6 py-16 w-full">
         <div className="text-center mb-8 max-w-[720px] mx-auto">
           <h1 className="text-5xl font-bold text-white mb-4 leading-tight">
-            Make Your AI Text Sound Human.
+            Detect and Humanize AI Content.
           </h1>
           <p className="text-lg" style={{ color: "var(--text-secondary)" }}>
-            Paste your AI-generated text and get a natural human-sounding version in seconds.
+            Analyse text or images for AI fingerprints, then rewrite or regenerate them to sound authentically human.
           </p>
         </div>
 
         {/* Input area */}
         <div className="max-w-[680px] mx-auto">
-          {mode === "paste" && (
+          <div style={{ display: mode === "paste" ? "block" : "none" }}>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Paste your text here or upload a file..."
+              placeholder="Paste your text here..."
               className="w-full min-h-[180px] p-5 rounded-2xl resize-y text-base focus:outline-none transition-shadow"
               style={{
                 background: "var(--bg-input)",
                 border: "1px solid var(--border-subtle)",
                 color: "var(--text-primary)",
                 fontFamily: "inherit",
+                wordBreak: "break-word",
+                overflowWrap: "break-word",
+                whiteSpace: "pre-wrap",
               }}
               onFocus={(e) => {
                 e.currentTarget.style.borderColor = "var(--border-focus)";
@@ -161,9 +214,9 @@ export default function Home() {
                 e.currentTarget.style.boxShadow = "none";
               }}
             />
-          )}
+          </div>
 
-          {mode === "upload" && (
+          <div style={{ display: mode === "upload" ? "block" : "none" }}>
             <div
               onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
               onDragLeave={() => setDragActive(false)}
@@ -182,19 +235,20 @@ export default function Home() {
                 Drag and drop a text file here, or{" "}
                 <label className="cursor-pointer font-medium" style={{ color: "var(--accent-action)" }}>
                   browse
-                  <input type="file" accept=".txt,.md" className="hidden" onChange={handleFileInput} />
+                  <input type="file" accept=".txt,.md,.docx,.pdf" className="hidden" onChange={handleFileInput} />
                 </label>
               </p>
-              <p className="text-sm" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>Supports .txt and .md files</p>
-              {text && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>Supports .txt, .md, .docx, and .pdf files</p>
+              <p className="text-sm mt-1" style={{ color: "var(--text-secondary)", opacity: 0.45 }}>For best results, keep PDF/DOCX files under 15 pages</p>
+              {(text || uploadFile) && (
                 <div className="mt-4 p-3 rounded-lg text-sm" style={{ background: "rgba(16,185,129,0.1)", color: "var(--accent-human)" }}>
-                  File loaded ({text.length.toLocaleString()} characters). Click Analyse to proceed.
+                  {uploadFile ? `${uploadFile.name} selected` : `File loaded (${text.length.toLocaleString()} characters)`}. Click Start Analysing to proceed.
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {mode === "url" && (
+          <div style={{ display: mode === "url" ? "block" : "none" }}>
             <div>
               <input
                 type="url"
@@ -217,12 +271,12 @@ export default function Home() {
                 }}
               />
               <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                Enter a URL to extract and analyze the text content
+                Works best with public articles, blog posts, and documentation pages. Sites behind logins or heavy JavaScript may not load correctly.
               </p>
             </div>
-          )}
+          </div>
 
-          {mode === "image" && (
+          <div style={{ display: mode === "image" ? "block" : "none" }}>
             <div>
               {!imagePreview ? (
                 <div
@@ -248,7 +302,7 @@ export default function Home() {
                     </label>
                   </p>
                   <p className="text-sm" style={{ color: "var(--text-secondary)", opacity: 0.6 }}>
-                    Supports JPEG, PNG, WebP, GIF · Max 10MB
+                    Supports JPEG, PNG, and WebP · Best under 3.5MB for fastest results
                   </p>
                 </div>
               ) : (
@@ -269,18 +323,24 @@ export default function Home() {
                 </div>
               )}
             </div>
-          )}
+          </div>
 
           {/* Tabs */}
-          <div className="flex gap-2 justify-center mt-4 flex-wrap">
-            {(["paste", "upload", "url", "image"] as InputMode[]).map((m) => (
+          <div className="flex gap-2 justify-center mt-4 flex-wrap items-center">
+            {(["paste", "upload", "url", "image"] as InputMode[]).map((m) => {
+              const isActive = mode === m;
+              const isDisabled = !isActive && hasAnyContent;
+              return (
               <button
                 key={m}
-                onClick={() => { setMode(m); setError(""); }}
+                onClick={() => switchMode(m)}
+                disabled={isDisabled}
                 className="py-2 px-4 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
                 style={{
-                  background: mode === m ? "var(--accent-action)" : "transparent",
-                  color: mode === m ? "#fff" : "var(--text-secondary)",
+                  background: isActive ? "var(--accent-action)" : "transparent",
+                  color: isActive ? "#fff" : "var(--text-secondary)",
+                  opacity: isDisabled ? 0.35 : 1,
+                  cursor: isDisabled ? "not-allowed" : "pointer",
                 }}
               >
                 {m === "image" && (
@@ -292,7 +352,17 @@ export default function Home() {
                 )}
                 {m === "paste" ? "Paste Text" : m === "upload" ? "Upload File" : m === "url" ? "Enter URL" : "Image"}
               </button>
-            ))}
+              );
+            })}
+            {hasAnyContent && (
+              <button
+                onClick={clearAllInputs}
+                className="py-2 px-4 rounded-lg text-xs font-medium transition-colors"
+                style={{ color: "var(--accent-ai)", background: "rgba(239,68,68,0.1)" }}
+              >
+                Clear
+              </button>
+            )}
           </div>
 
           {/* Error */}
@@ -329,10 +399,8 @@ export default function Home() {
                 </svg>
                 Analysing...
               </span>
-            ) : mode === "image" ? (
-              "Analyse Image"
             ) : (
-              "Analyse Text"
+              "Start Analysing"
             )}
           </button>
         </div>

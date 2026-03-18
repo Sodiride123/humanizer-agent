@@ -47,6 +47,20 @@ export async function analyzeUrl(url: string): Promise<AnalysisResult> {
   return res.json();
 }
 
+export async function analyzeFile(file: File): Promise<AnalysisResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${getApiBaseUrl()}/api/upload-file`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "File analysis failed" }));
+    throw new Error(err.detail || "File analysis failed");
+  }
+  return res.json();
+}
+
 export async function getResult(id: string): Promise<AnalysisResult> {
   const res = await fetch(`${getApiBaseUrl()}/api/results/${id}`);
   if (!res.ok) {
