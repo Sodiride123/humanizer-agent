@@ -104,10 +104,31 @@ class ImageHumanizeResponse(BaseModel):
 
 # --- Helpers ---
 
+def strip_markdown(text: str) -> str:
+    """Strip markdown formatting so analysis focuses on the prose content."""
+    # Remove horizontal rules
+    text = re.sub(r'^\s*[\*\-_]{3,}\s*$', '', text, flags=re.MULTILINE)
+    # Remove ATX headings (# Heading)
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # Remove bold/italic markers
+    text = re.sub(r'\*{1,3}|_{1,3}', '', text)
+    # Remove inline code
+    text = re.sub(r'`[^`]*`', '', text)
+    # Remove links [text](url)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # Remove bullet/list markers at line start
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    # Collapse multiple blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def split_sentences(text: str) -> list[str]:
-    """Split text into sentences."""
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    return [s.strip() for s in sentences if s.strip()]
+    """Split text into sentences, stripping markdown first."""
+    text = strip_markdown(text)
+    # Split on sentence-ending punctuation OR on line breaks (for non-punctuated lines like headings/bullets)
+    parts = re.split(r'(?<=[.!?])\s+|\n+', text.strip())
+    return [s.strip() for s in parts if s.strip() and len(s.strip()) >= 5]
 
 def get_confidence_label(score: float) -> str:
     if score >= 80:
