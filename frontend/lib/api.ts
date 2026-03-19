@@ -32,7 +32,7 @@ async function pollJob<T>(statusUrl: string, maxAttempts = 90, interval = 2000):
     }
     const data = await res.json();
     if (data.status === "done") return data.result as T;
-    if (data.status === "error") throw new Error(data.error || "Analysis failed");
+    if (data.status === "error") throw new Error(data.error || "Processing failed");
   }
   throw new Error("Analysis timed out. Please try with shorter text.");
 }
