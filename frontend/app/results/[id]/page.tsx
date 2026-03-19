@@ -279,15 +279,23 @@ export default function ResultsPage() {
 
         {/* Humanise Section */}
         <div className="mt-8">
-          {!humanized ? (
+          {!humanized ? (() => {
+            const fullText = result.sentences.map((s) => s.text).join(" ");
+            const tooLong = fullText.length > 15000;
+            return (
             <div className="text-center">
+              {tooLong && (
+                <div className="mb-4 p-3 rounded-lg text-sm max-w-[480px] mx-auto" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "var(--accent-ai)" }}>
+                  Text is too long to humanize ({fullText.length.toLocaleString()} characters). Please shorten it to under 15,000 characters.
+                </div>
+              )}
               <button
                 onClick={() => handleHumanize(1)}
-                disabled={humanizing}
+                disabled={humanizing || tooLong}
                 className="w-full max-w-[480px] h-[60px] rounded-xl text-xl font-semibold text-white transition-all flex items-center justify-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: "var(--accent-action)" }}
                 onMouseEnter={(e) => {
-                  if (!humanizing) e.currentTarget.style.boxShadow = "0 4px 24px rgba(108,92,231,0.5)";
+                  if (!humanizing && !tooLong) e.currentTarget.style.boxShadow = "0 4px 24px rgba(108,92,231,0.5)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.boxShadow = "none";
@@ -316,7 +324,8 @@ export default function ResultsPage() {
                 </div>
               )}
             </div>
-          ) : (
+            );
+          })() : (
             <div className="rounded-xl p-6" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)" }}>
               {/* Score Progression Banner */}
               {humanized.new_score !== undefined && (

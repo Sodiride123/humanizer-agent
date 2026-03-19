@@ -55,7 +55,7 @@ class URLExtractRequest(BaseModel):
     url: str
 
 class HumanizeRequest(BaseModel):
-    text: str = Field(..., min_length=10, max_length=100000)
+    text: str = Field(..., min_length=10, max_length=15000)
     result_id: Optional[str] = None
     iteration: int = Field(default=1, ge=1, le=5)
 
@@ -1271,9 +1271,17 @@ def get_result(result_id: str):
     return results_store[result_id]
 
 
+HUMANIZE_MAX_CHARS = 15000  # ~5k tokens; keeps total prompt+response within rate limits
+
 @app.post("/api/humanize")
 async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: BackgroundTasks):
     """Start text humanization as a background job. Returns a job_id to poll."""
+    if len(request.text) > HUMANIZE_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Text is too long to humanize ({len(request.text):,} characters). "
+                   f"Please shorten it to under {HUMANIZE_MAX_CHARS:,} characters and try again.",
+        )
     job_id = str(uuid.uuid4())
     jobs_store[job_id] = {"status": "processing"}
 
@@ -1302,7 +1310,7 @@ async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: Bac
                 prompt += iteration_extra
             prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
-            result = chat_json(prompt, model="claude-sonnet-4-6")
+            result = chat_json(prompt, model="claude-sonnet-4-6", max_tokens=8192)
 
             if not result or "humanized_text" not in result:
                 jobs_store[jid] = {"status": "error", "error": "Invalid humanization response"}
