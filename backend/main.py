@@ -104,31 +104,72 @@ class ImageHumanizeResponse(BaseModel):
 
 # --- Helpers ---
 
-def strip_markdown(text: str) -> str:
-    """Strip markdown formatting so analysis focuses on the prose content."""
-    # Remove horizontal rules
+def strip_markup(text: str) -> str:
+    """Strip markdown and basic HTML so sentence splitting works on clean prose."""
+    # Fenced code blocks (``` or ~~~) — remove entirely, not prose
+    text = re.sub(r'```[\s\S]*?```', ' ', text)
+    text = re.sub(r'~~~[\s\S]*?~~~', ' ', text)
+    # Block-level HTML tags → newline so their content stays as separate lines
+    text = re.sub(r'</(p|div|h[1-6]|li|blockquote|section|article|tr|td|th)>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    # Remaining HTML tags → strip
+    text = re.sub(r'<[^>]+>', '', text)
+    # Horizontal rules (---, ***, ___)
     text = re.sub(r'^\s*[\*\-_]{3,}\s*$', '', text, flags=re.MULTILINE)
-    # Remove ATX headings (# Heading)
+    # ATX headings (# Heading)
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-    # Remove bold/italic markers
+    # Setext headings (underlined with === or ---)
+    text = re.sub(r'^[=\-]{3,}\s*$', '', text, flags=re.MULTILINE)
+    # Blockquotes (> text)
+    text = re.sub(r'^\s*>\s?', '', text, flags=re.MULTILINE)
+    # Bold/italic (**, *, __, _)
     text = re.sub(r'\*{1,3}|_{1,3}', '', text)
-    # Remove inline code
+    # Inline code
     text = re.sub(r'`[^`]*`', '', text)
-    # Remove links [text](url)
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    # Remove bullet/list markers at line start
+    # Images ![alt](url) — remove entirely
+    text = re.sub(r'!\[[^\]]*\]\([^\)]*\)', '', text)
+    # Links [text](url) → keep text
+    text = re.sub(r'\[([^\]]+)\]\([^\)]*\)', r'\1', text)
+    # Reference-style links [text][ref] → keep text
+    text = re.sub(r'\[([^\]]+)\]\[[^\]]*\]', r'\1', text)
+    # Footnote markers [^1] [1]
+    text = re.sub(r'\[\^?\d+\]', '', text)
+    # Bullet/numbered list markers at line start
     text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+[.)]\s+', '', text, flags=re.MULTILINE)
     # Collapse multiple blank lines
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 
+# Sentence-ending punctuation split pattern:
+# - Western (.!?): require trailing whitespace to avoid splitting "3.14" or "Dr. Smith"
+# - CJK (。！？) and Arabic (؟ ۔) and ellipsis (…): split immediately — no space used in these scripts
+_SENT_END_RE = re.compile(r'(?<=[.!?])\s+|(?<=[。！？؟۔…])')
+
+
 def split_sentences(text: str) -> list[str]:
-    """Split text into sentences, stripping markdown first."""
-    text = strip_markdown(text)
-    # Split on sentence-ending punctuation OR on line breaks (for non-punctuated lines like headings/bullets)
-    parts = re.split(r'(?<=[.!?])\s+|\n+', text.strip())
-    return [s.strip() for s in parts if s.strip() and len(s.strip()) >= 5]
+    """Split text into sentences robustly, handling markdown, HTML, and multiple languages."""
+    text = strip_markup(text)
+
+    result = []
+    # Split on newlines first — separates headers, bullets, and paragraph blocks
+    # that don't end in punctuation from each other
+    for block in re.split(r'\n+', text):
+        block = block.strip()
+        if not block or len(block) < 5:
+            continue
+        # Within each block, split on sentence-ending punctuation + whitespace
+        # This handles: English, Russian, CJK, Arabic — without splitting on
+        # decimal numbers (3.14) or abbreviations (Dr. / e.g.) since those
+        # are followed by digits or lowercase without a space gap
+        parts = _SENT_END_RE.split(block)
+        for part in parts:
+            part = part.strip()
+            if part and len(part) >= 5:
+                result.append(part)
+
+    return result
 
 def get_confidence_label(score: float) -> str:
     if score >= 80:
