@@ -1302,14 +1302,8 @@ async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: Bac
                 prompt += iteration_extra
             prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
-            # Scale max_tokens based on input size: the response must contain the                                                                                                                            
-            # full rewritten text plus JSON overhead (changes list, audit notes).                                                                                                                            
-            # Rough estimate: 1 token ≈ 3 chars for multilingual content.                                                                                                                                    
-            estimated_output_tokens = max(4096, len(sentences_info) // 2)                                                                                                                                    
-            # Cap to model limit and add headroom for JSON structure                                                                                                                                         
-            max_tok = min(estimated_output_tokens + 2048, 32000)                                                                                                                                             
-            result = chat_json(prompt, model="claude-sonnet-4-6", max_tokens=max_tok)
-            
+            result = chat_json(prompt, model="claude-sonnet-4-6")
+
             if not result or "humanized_text" not in result:
                 jobs_store[jid] = {"status": "error", "error": "Invalid humanization response"}
                 return
