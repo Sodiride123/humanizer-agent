@@ -130,7 +130,11 @@ export async function humanizeText(
       .catch(() => ({ detail: "Humanization failed" }));
     throw new Error(err.detail || "Humanization failed");
   }
-  return res.json();
+  const data = await res.json();
+  if (data.job_id) {
+    return pollJob<HumanizeResult>(`${getApiBaseUrl()}/api/humanize/status/${data.job_id}`, 90, 2000);
+  }
+  return data;
 }
 
 // --- Image types ---

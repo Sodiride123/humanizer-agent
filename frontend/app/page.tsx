@@ -18,6 +18,8 @@ export default function Home() {
   const [error, setError] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [fileReading, setFileReading] = useState(false);
+  const [imageReading, setImageReading] = useState(false);
 
   // Check if any input mode has content
   const hasTextContent = text.trim().length > 0;
@@ -25,6 +27,7 @@ export default function Home() {
   const hasUploadContent = uploadFile !== null;
   const hasImageContent = imageFile !== null;
   const hasAnyContent = hasTextContent || hasUrlContent || hasUploadContent || hasImageContent;
+  const isFileLoading = fileReading || imageReading;
 
   const clearAllInputs = () => {
     setText("");
@@ -33,6 +36,8 @@ export default function Home() {
     setImageFile(null);
     setImagePreview("");
     setError("");
+    setFileReading(false);
+    setImageReading(false);
   };
 
   const switchMode = (m: InputMode) => {
@@ -104,6 +109,26 @@ export default function Home() {
 
   const allowedDocExts = [".txt", ".md", ".docx", ".pdf"];
 
+  const readTextFile = (file: File) => {
+    const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
+    setUploadFile(file);
+    if (ext === ".txt" || ext === ".md") {
+      setFileReading(true);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setText(ev.target?.result as string);
+        setFileReading(false);
+      };
+      reader.onerror = () => {
+        setError("Failed to read file");
+        setFileReading(false);
+      };
+      reader.readAsText(file);
+    } else {
+      setText("");
+    }
+  };
+
   const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
@@ -114,28 +139,13 @@ export default function Home() {
       setError("Please upload a .txt, .md, .docx, or .pdf file");
       return;
     }
-    setUploadFile(file);
-    if (ext === ".txt" || ext === ".md") {
-      const reader = new FileReader();
-      reader.onload = (ev) => setText(ev.target?.result as string);
-      reader.readAsText(file);
-    } else {
-      setText("");
-    }
+    readTextFile(file);
   }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const ext = "." + (file.name.split(".").pop()?.toLowerCase() || "");
-    setUploadFile(file);
-    if (ext === ".txt" || ext === ".md") {
-      const reader = new FileReader();
-      reader.onload = (ev) => setText(ev.target?.result as string);
-      reader.readAsText(file);
-    } else {
-      setText("");
-    }
+    readTextFile(file);
   };
 
   const handleImageFile = (file: File) => {
@@ -149,8 +159,16 @@ export default function Home() {
       return;
     }
     setImageFile(file);
+    setImageReading(true);
     const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.onload = (ev) => {
+      setImagePreview(ev.target?.result as string);
+      setImageReading(false);
+    };
+    reader.onerror = () => {
+      setError("Failed to read image");
+      setImageReading(false);
+    };
     reader.readAsDataURL(file);
     setError("");
   };
@@ -375,7 +393,7 @@ export default function Home() {
           {/* Analyse button */}
           <button
             onClick={handleAnalyze}
-            disabled={loading}
+            disabled={loading || isFileLoading}
             className="mt-6 mx-auto block w-[280px] h-[56px] rounded-xl text-lg font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: "var(--accent-action)",
@@ -398,6 +416,14 @@ export default function Home() {
                   <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" className="opacity-75"/>
                 </svg>
                 Analysing...
+              </span>
+            ) : isFileLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/>
+                  <path d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" fill="currentColor" className="opacity-75"/>
+                </svg>
+                Loading File...
               </span>
             ) : (
               "Start Analysing"

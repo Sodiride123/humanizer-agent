@@ -1199,81 +1199,97 @@ def get_result(result_id: str):
 
 
 @app.post("/api/humanize")
-async def humanize_text(request: HumanizeRequest):
-    """Rewrite AI-flagged sentences using the full 24-pattern humanizer + iteration support + two-pass audit."""
-    # Get or create analysis
-    analysis = None
-    if request.result_id and request.result_id in results_store:
-        analysis = results_store[request.result_id]
-    else:
-        analysis_result = await analyze_text(request.text)
-        analysis = analysis_result.model_dump()
+async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: BackgroundTasks):
+    """Start text humanization as a background job. Returns a job_id to poll."""
+    job_id = str(uuid.uuid4())
+    jobs_store[job_id] = {"status": "processing"}
 
-    # Build the prompt with labeled sentences (include detected patterns as hints)
-    sentences_info = ""
-    for s in analysis.get("sentences", []):
-        label_tag = "AI-GENERATED" if s["label"] == "ai" else "HUMAN-WRITTEN"
-        patterns = s.get("patterns", [])
-        pattern_hint = f" [patterns: {', '.join(patterns)}]" if patterns else ""
-        sentences_info += f"[{label_tag}]{pattern_hint} {s['text']}\n"
+    async def _run_humanize(jid: str, text: str, result_id: Optional[str], iteration: int):
+        try:
+            # Get or create analysis
+            analysis = None
+            if result_id and result_id in results_store:
+                analysis = results_store[result_id]
+            else:
+                analysis_result = await analyze_text(text)
+                analysis = analysis_result.model_dump()
 
-    # Build iteration-aware prompt
-    prompt = HUMANIZE_PROMPT_BASE
-    iteration_extra = HUMANIZE_ITERATION_EXTRAS.get(min(request.iteration, 3))
-    if iteration_extra:
-        prompt += iteration_extra
-    prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
+            # Build the prompt with labeled sentences (include detected patterns as hints)
+            sentences_info = ""
+            for s in analysis.get("sentences", []):
+                label_tag = "AI-GENERATED" if s["label"] == "ai" else "HUMAN-WRITTEN"
+                patterns = s.get("patterns", [])
+                pattern_hint = f" [patterns: {', '.join(patterns)}]" if patterns else ""
+                sentences_info += f"[{label_tag}]{pattern_hint} {s['text']}\n"
 
-    try:
-        result = chat_json(prompt, model="claude-sonnet-4-6")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Humanization failed: {str(e)}")
+            # Build iteration-aware prompt
+            prompt = HUMANIZE_PROMPT_BASE
+            iteration_extra = HUMANIZE_ITERATION_EXTRAS.get(min(iteration, 3))
+            if iteration_extra:
+                prompt += iteration_extra
+            prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
-    if not result or "humanized_text" not in result:
-        raise HTTPException(status_code=500, detail="Invalid humanization response")
+            result = chat_json(prompt, model="claude-sonnet-4-6")
 
-    humanized_text = result.get("humanized_text", request.text)
-    changes = result.get("changes", [])
-    audit_notes = result.get("audit_notes", "")
+            if not result or "humanized_text" not in result:
+                jobs_store[jid] = {"status": "error", "error": "Invalid humanization response"}
+                return
 
-    # Fallback: reconstruct humanized text from changes if LLM didn't apply them
-    if changes and humanized_text == request.text:
-        patched = request.text
-        for change in changes:
-            if change.get("original") and change.get("rewritten"):
-                patched = patched.replace(change["original"], change["rewritten"])
-        humanized_text = patched
+            humanized_text = result.get("humanized_text", text)
+            changes = result.get("changes", [])
+            audit_notes = result.get("audit_notes", "")
 
-    # Re-analyse the humanized text to get the new AI score
-    original_score = analysis.get("overall_score", 0)
-    new_score = original_score
-    new_patterns = []
-    try:
-        reanalysis = await analyze_text(humanized_text)
-        reanalysis_dict = reanalysis.model_dump()
-        new_score = reanalysis_dict.get("overall_score", original_score)
-        new_patterns = reanalysis_dict.get("patterns_found", [])
-    except Exception:
-        pass
+            # Fallback: reconstruct humanized text from changes if LLM didn't apply them
+            if changes and humanized_text == text:
+                patched = text
+                for change in changes:
+                    if change.get("original") and change.get("rewritten"):
+                        patched = patched.replace(change["original"], change["rewritten"])
+                humanized_text = patched
 
-    response = {
-        "original": request.text,
-        "humanized": humanized_text,
-        "changes": changes,
-        "audit_notes": audit_notes,
-        "result_id": analysis.get("id", ""),
-        "original_score": original_score,
-        "new_score": new_score,
-        "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
-        "iteration": request.iteration,
-        "original_patterns": analysis.get("patterns_found", []),
-        "remaining_patterns": new_patterns,
-    }
+            # Re-analyse the humanized text to get the new AI score
+            original_score = analysis.get("overall_score", 0)
+            new_score = original_score
+            new_patterns = []
+            try:
+                reanalysis = await analyze_text(humanized_text)
+                reanalysis_dict = reanalysis.model_dump()
+                new_score = reanalysis_dict.get("overall_score", original_score)
+                new_patterns = reanalysis_dict.get("patterns_found", [])
+            except Exception:
+                pass
 
-    store_key = f"humanized-{analysis.get('id', '')}"
-    results_store[store_key] = response
+            response = {
+                "original": text,
+                "humanized": humanized_text,
+                "changes": changes,
+                "audit_notes": audit_notes,
+                "result_id": analysis.get("id", ""),
+                "original_score": original_score,
+                "new_score": new_score,
+                "improvement": round(original_score - new_score, 1) if original_score > new_score else 0,
+                "iteration": iteration,
+                "original_patterns": analysis.get("patterns_found", []),
+                "remaining_patterns": new_patterns,
+            }
 
-    return response
+            store_key = f"humanized-{analysis.get('id', '')}"
+            results_store[store_key] = response
+
+            jobs_store[jid] = {"status": "done", "result": response}
+        except Exception as e:
+            jobs_store[jid] = {"status": "error", "error": f"Humanization failed: {str(e)}"}
+
+    background_tasks.add_task(_run_humanize, job_id, request.text, request.result_id, request.iteration)
+    return {"job_id": job_id, "status": "processing"}
+
+
+@app.get("/api/humanize/status/{job_id}")
+async def humanize_text_status(job_id: str):
+    job = jobs_store.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 if __name__ == "__main__":
