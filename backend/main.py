@@ -765,11 +765,22 @@ async def analyze_image_endpoint(file: UploadFile = File(...)):
     if len(raw_bytes) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image too large. Maximum size is 20MB.")
 
+    # Detect actual format from bytes — browser-reported MIME type can be wrong
+    # (e.g. a JPEG file saved with a .png extension). Bedrock rejects mismatches.
+    from PIL import Image as PILImage
+    try:
+        _probe = PILImage.open(io.BytesIO(raw_bytes))
+        _fmt = (_probe.format or "").upper()
+        _mime_map = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
+        if _fmt in _mime_map:
+            content_type = _mime_map[_fmt]
+    except Exception:
+        pass  # keep browser-reported content_type if PIL can't read it
+
     # Base64 encoding inflates size by ~33%, so 3.75MB raw → ~5MB base64
     # Compress to stay under the 5MB API limit after encoding
     MAX_API_BYTES = 3_700_000
     if len(raw_bytes) > MAX_API_BYTES:
-        from PIL import Image as PILImage
         img = PILImage.open(io.BytesIO(raw_bytes)).convert("RGB")
         # Resize if very large (e.g. 8000x6000 → proportionally smaller)
         max_dim = 4096
