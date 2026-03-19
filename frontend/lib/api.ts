@@ -22,19 +22,19 @@ export interface AnalysisResult {
 }
 
 // Poll a job status endpoint until done/error
-async function pollJob<T>(statusUrl: string, maxAttempts = 90, interval = 2000): Promise<T> {
+async function pollJob<T>(statusUrl: string, maxAttempts = 90, interval = 2000, label = "Processing"): Promise<T> {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, interval));
     const res = await fetch(statusUrl);
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Analysis failed" }));
-      throw new Error(err.detail || "Analysis failed");
+      const err = await res.json().catch(() => ({ detail: null }));
+      throw new Error(err.detail || `${label} failed (server error ${res.status})`);
     }
     const data = await res.json();
     if (data.status === "done") return data.result as T;
-    if (data.status === "error") throw new Error(data.error || "Processing failed");
+    if (data.status === "error") throw new Error(data.error || `${label} failed`);
   }
-  throw new Error("Analysis timed out. Please try with shorter text.");
+  throw new Error(`${label} timed out. Please try with shorter text.`);
 }
 
 export async function analyzeText(text: string): Promise<AnalysisResult> {
@@ -49,7 +49,7 @@ export async function analyzeText(text: string): Promise<AnalysisResult> {
   }
   const data = await res.json();
   if (data.job_id) {
-    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`);
+    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`, 90, 2000, "Analysis");
   }
   return data;
 }
@@ -66,7 +66,7 @@ export async function analyzeUrl(url: string): Promise<AnalysisResult> {
   }
   const data = await res.json();
   if (data.job_id) {
-    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`);
+    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`, 90, 2000, "URL analysis");
   }
   return data;
 }
@@ -84,7 +84,7 @@ export async function analyzeFile(file: File): Promise<AnalysisResult> {
   }
   const data = await res.json();
   if (data.job_id) {
-    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`);
+    return pollJob<AnalysisResult>(`${getApiBaseUrl()}/api/analyze/text/status/${data.job_id}`, 90, 2000, "File analysis");
   }
   return data;
 }
@@ -132,7 +132,7 @@ export async function humanizeText(
   }
   const data = await res.json();
   if (data.job_id) {
-    return pollJob<HumanizeResult>(`${getApiBaseUrl()}/api/humanize/status/${data.job_id}`, 90, 2000);
+    return pollJob<HumanizeResult>(`${getApiBaseUrl()}/api/humanize/status/${data.job_id}`, 180, 2000, "Humanization");
   }
   return data;
 }
@@ -191,7 +191,7 @@ export async function humanizeImage(resultId: string): Promise<ImageHumanizeResu
   const { job_id } = await startRes.json();
 
   // Step 2: poll until done (every 3s, max 3 minutes)
-  return pollJob<ImageHumanizeResult>(`${getApiBaseUrl()}/api/humanize/image/status/${job_id}`, 60, 3000);
+  return pollJob<ImageHumanizeResult>(`${getApiBaseUrl()}/api/humanize/image/status/${job_id}`, 60, 3000, "Image humanization");
 }
 
 export async function getImageResult(id: string): Promise<ImageAnalysisResult> {

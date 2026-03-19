@@ -8,8 +8,16 @@ import mimetypes
 import asyncio
 import io
 import random
+import logging
 from typing import Optional
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("humanizer")
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,7 +63,7 @@ class URLExtractRequest(BaseModel):
     url: str
 
 class HumanizeRequest(BaseModel):
-    text: str = Field(..., min_length=10, max_length=15000)
+    text: str = Field(..., min_length=10, max_length=30000)
     result_id: Optional[str] = None
     iteration: int = Field(default=1, ge=1, le=5)
 
@@ -263,6 +271,20 @@ TEXT TO ANALYZE:
 BATCH_SIZE = 40  # max sentences per LLM call to keep JSON output within token limits
 
 
+async def _chat_json_async(*args, **kwargs) -> dict:
+    """Run chat_json in a thread pool so it doesn't block the asyncio event loop."""
+    loop = asyncio.get_event_loop()
+    import functools
+    return await loop.run_in_executor(None, functools.partial(chat_json, *args, **kwargs))
+
+
+async def _chat_messages_async(*args, **kwargs) -> str:
+    """Run chat_messages in a thread pool so it doesn't block the asyncio event loop."""
+    loop = asyncio.get_event_loop()
+    import functools
+    return await loop.run_in_executor(None, functools.partial(chat_messages, *args, **kwargs))
+
+
 def _analyze_batch(batch_text: str) -> dict:
     """Analyze a single batch of text, returning the parsed JSON result."""
     prompt = ANALYSIS_PROMPT + batch_text
@@ -288,8 +310,9 @@ async def analyze_text(text: str) -> AnalysisResponse:
     # For short texts, single call
     if len(sentences) <= BATCH_SIZE:
         try:
-            result = chat_json(ANALYSIS_PROMPT + text, model="claude-sonnet-4-6", max_tokens=8192)
+            result = await _chat_json_async(ANALYSIS_PROMPT + text, model="claude-sonnet-4-6", max_tokens=8192)
         except Exception as e:
+            logger.exception("Text analysis failed (single batch)")
             raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
         if not result or "sentences" not in result:
             raise HTTPException(status_code=500, detail="Invalid analysis response")
@@ -306,6 +329,7 @@ async def analyze_text(text: str) -> AnalysisResponse:
             tasks = [loop.run_in_executor(None, _analyze_batch, batch) for batch in batches]
             all_results = await asyncio.gather(*tasks)
         except Exception as e:
+            logger.exception("Text analysis failed (batch)")
             raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
         # Validate all batches returned sentences
@@ -684,8 +708,9 @@ async def analyse_image_data(image_b64: str, mime_type: str, filename: str) -> I
     ]
 
     try:
-        raw = chat_messages(messages, model="claude-sonnet-4-6", max_tokens=2048, temperature=0.0)
+        raw = await _chat_messages_async(messages, model="claude-sonnet-4-6", max_tokens=2048, temperature=0.0)
     except Exception as e:
+        logger.exception("Image analysis failed")
         raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")
 
     text = raw.strip()
@@ -895,8 +920,8 @@ def humanise_postprocess(input_path: str, output_path: str) -> None:
     result_img.save(output_path, format="PNG", optimize=True)
 
 
-def _run_humanize_job(job_id: str, result_id: str, analysis: dict):
-    """Background task (sync): generate a humanised image and store result in jobs_store."""
+async def _run_humanize_job(job_id: str, result_id: str, analysis: dict):
+    """Background task: generate a humanised image and store result in jobs_store."""
     try:
         description = analysis.get("description", "")
         patterns = analysis.get("patterns_found", [])
@@ -985,7 +1010,7 @@ Craft a detailed generation prompt that:
 5. Does NOT use: perfect, beautiful, stunning, cinematic, dramatic, ultra-detailed, hyperrealistic, 8K, masterpiece, glowing, neon
 """
 
-        prompt_result = chat_json(humanize_prompt, model="claude-sonnet-4-6", system=IMAGE_HUMANIZE_SYSTEM)
+        prompt_result = await _chat_json_async(humanize_prompt, model="claude-sonnet-4-6", system=IMAGE_HUMANIZE_SYSTEM)
         new_prompt = prompt_result.get("prompt", description)
         changes_summary = prompt_result.get("changes_summary", "Applied anti-AI humanisation rules.")
 
@@ -1026,7 +1051,7 @@ Craft a detailed generation prompt that:
                     ],
                 }
             ]
-            raw = chat_messages(reanalysis_messages, model="claude-sonnet-4-6")
+            raw = await _chat_messages_async(reanalysis_messages, model="claude-sonnet-4-6")
             if raw:
                 import re as _re
                 json_match = _re.search(r'\{.*\}', raw, _re.DOTALL)
@@ -1049,6 +1074,7 @@ Craft a detailed generation prompt that:
         jobs_store[job_id] = {"status": "done", "result": result}
 
     except Exception as e:
+        logger.exception("Image humanize job %s failed", job_id)
         jobs_store[job_id] = {"status": "error", "error": str(e)}
 
 
@@ -1132,6 +1158,7 @@ async def analyze_text_endpoint(request: TextAnalysisRequest, background_tasks: 
             jobs_store[jid] = {"status": "done", "result": result.model_dump()}
         except Exception as e:
             detail = getattr(e, 'detail', str(e))
+            logger.exception("Text analysis job %s failed: %s", jid, detail)
             jobs_store[jid] = {"status": "error", "error": detail}
 
     background_tasks.add_task(_run_analysis, job_id, request.text)
@@ -1186,6 +1213,7 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
             results_store[rd["id"]] = rd
             jobs_store[jid] = {"status": "done", "result": rd}
         except Exception as e:
+            logger.exception("File analysis job %s failed (file=%s)", jid, fname)
             jobs_store[jid] = {"status": "error", "error": getattr(e, 'detail', str(e))}
 
     background_tasks.add_task(_run, job_id, text, file.filename)
@@ -1258,6 +1286,7 @@ async def extract_url(request: URLExtractRequest, background_tasks: BackgroundTa
             results_store[rd["id"]] = rd
             jobs_store[jid] = {"status": "done", "result": rd}
         except Exception as e:
+            logger.exception("URL analysis job %s failed (url=%s)", jid, src_url)
             jobs_store[jid] = {"status": "error", "error": getattr(e, 'detail', str(e))}
 
     background_tasks.add_task(_run, job_id, extracted_text, url)
@@ -1271,7 +1300,7 @@ def get_result(result_id: str):
     return results_store[result_id]
 
 
-HUMANIZE_MAX_CHARS = 15000  # ~5k tokens; keeps total prompt+response within rate limits
+HUMANIZE_MAX_CHARS = 30000  # ~14k tokens for Russian/CJK; fits within 30k TPM company limit
 
 @app.post("/api/humanize")
 async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: BackgroundTasks):
@@ -1310,9 +1339,10 @@ async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: Bac
                 prompt += iteration_extra
             prompt += HUMANIZE_PROMPT_FORMAT + sentences_info
 
-            result = chat_json(prompt, model="claude-sonnet-4-6", max_tokens=8192)
+            result = await _chat_json_async(prompt, model="claude-sonnet-4-6", max_tokens=16000, timeout=300)
 
             if not result or "humanized_text" not in result:
+                logger.error("Text humanize job %s: invalid response from model (keys=%s)", jid, list(result.keys()) if result else None)
                 jobs_store[jid] = {"status": "error", "error": "Invalid humanization response"}
                 return
 
@@ -1359,6 +1389,7 @@ async def humanize_text_endpoint(request: HumanizeRequest, background_tasks: Bac
 
             jobs_store[jid] = {"status": "done", "result": response}
         except Exception as e:
+            logger.exception("Text humanize job %s failed", jid)
             jobs_store[jid] = {"status": "error", "error": f"Humanization failed: {str(e)}"}
 
     background_tasks.add_task(_run_humanize, job_id, request.text, request.result_id, request.iteration)

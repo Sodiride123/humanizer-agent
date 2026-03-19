@@ -281,12 +281,12 @@ export default function ResultsPage() {
         <div className="mt-8">
           {!humanized ? (() => {
             const fullText = result.sentences.map((s) => s.text).join(" ");
-            const tooLong = fullText.length > 15000;
+            const tooLong = fullText.length > 30000;
             return (
             <div className="text-center">
               {tooLong && (
                 <div className="mb-4 p-3 rounded-lg text-sm max-w-[480px] mx-auto" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "var(--accent-ai)" }}>
-                  Text is too long to humanize ({fullText.length.toLocaleString()} characters). Please shorten it to under 15,000 characters.
+                  Text is too long to humanize ({fullText.length.toLocaleString()} characters). Please shorten it to under 30,000 characters.
                 </div>
               )}
               <button

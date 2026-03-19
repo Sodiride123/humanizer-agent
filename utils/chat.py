@@ -203,6 +203,7 @@ def chat_json(
     model: str | None = None,
     system: str | None = None,
     max_tokens: int = 4096,
+    timeout: int = 120,
 ) -> dict:
     """
     Chat and parse the response as JSON.
@@ -231,7 +232,7 @@ def chat_json(
         json_system = f"{system}\n\n{json_system}"
 
     response = chat(prompt, model=model, system=json_system,
-                    max_tokens=max_tokens, temperature=0.0)
+                    max_tokens=max_tokens, temperature=0.0, timeout=timeout)
 
     # Strip markdown code fences if present
     text = response.strip()

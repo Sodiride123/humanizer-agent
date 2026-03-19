@@ -21,14 +21,47 @@ Humanizer analyses your content for AI fingerprints, then rewrites or regenerate
 
 ---
 
+## 📏 Input Limits
+
+### Analysis (Paste Text / File Upload / URL)
+
+| Layer | Limit | Behaviour |
+|---|---|---|
+| Frontend | none | No client-side cap |
+| Backend Pydantic (paste text) | 100,000 chars | Rejected with 422 if exceeded |
+| Backend actual analysis | **50,000 chars** | Text silently truncated before analysis |
+
+All three input methods (paste, upload, URL) are truncated to **50,000 characters** before being sent to the LLM. Content beyond that point is not analysed. There is currently no user-visible warning when truncation occurs.
+
+> **Token equivalents** (approximate, varies by language):
+> - English: ~12,500 tokens (4 chars/token)
+> - Russian / Cyrillic: ~25,000 tokens (2 chars/token)
+> - Chinese / Japanese / Korean: ~50,000 tokens (1 char/token)
+
+### Humanization (results page)
+
+| Layer | Limit | Behaviour |
+|---|---|---|
+| Frontend check | 30,000 chars | Button disabled, error shown |
+| Backend Pydantic | 30,000 chars | Rejected with 422 if exceeded |
+| Backend logic | 30,000 chars | Explicit 400 error with char count |
+| LLM timeout | 300 seconds | RuntimeError if model exceeds limit |
+| Frontend poll window | 360 seconds (180 × 2s) | "Humanization timed out" if exceeded |
+
+The 30,000 character humanization limit is set to stay within the **30,000 tokens/minute company rate limit**. For non-English text (Russian/CJK), a 30,000-character input can consume 15,000–30,000 tokens, which approaches or fills the entire TPM budget in a single request.
+
+> **Known limitation:** the 30,000 character cap may still result in a timeout for long non-English texts (particularly CJK) because those use closer to 1 char/token, meaning the LLM must generate a very large output. If you consistently hit timeouts, reduce the input to ~15,000 characters.
+
+---
+
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────┐
 │           Next.js Frontend              │
-│         (port 3000)                     │
+│         (port 3000, production build)   │
 │                                         │
-│  /           → Upload & analyse         │
+│  /                 → Upload & analyse   │
 │  /results/[id]     → Text results       │
 │  /results/image/[id] → Image results    │
 └──────────────┬──────────────────────────┘
@@ -38,11 +71,18 @@ Humanizer analyses your content for AI fingerprints, then rewrites or regenerate
 │           FastAPI Backend               │
 │         (port 8000)                     │
 │                                         │
-│  POST /api/analyse        → Analyse     │
-│  POST /api/humanize       → Text job    │
-│  POST /api/humanize/image → Image job   │
-│  GET  /api/results/{id}   → Poll status │
-│  GET  /api/images/{file}  → Serve image │
+│  POST /api/analyze/text       → job     │
+│  POST /api/upload-file        → job     │
+│  POST /api/extract-url        → job     │
+│  GET  /api/analyze/text/status/{id}     │
+│  POST /api/humanize           → job     │
+│  GET  /api/humanize/status/{id}         │
+│  POST /api/analyze/image      → sync    │
+│  POST /api/humanize/image     → job     │
+│  GET  /api/humanize/image/status/{id}   │
+│  GET  /api/results/{id}                 │
+│  GET  /api/results/image/{id}           │
+│  GET  /api/images/{file}      → static  │
 └──────────────┬──────────────────────────┘
                │
                ▼
@@ -55,12 +95,24 @@ Humanizer analyses your content for AI fingerprints, then rewrites or regenerate
 └─────────────────────────────────────────┘
 ```
 
+### Async architecture note
+
+All LLM calls (`chat_json`, `chat_messages`) use the synchronous `requests` library internally. To prevent these from blocking the asyncio event loop (which caused status-poll requests to time out during processing), every LLM call in an async context is wrapped with `run_in_executor`:
+
+```python
+async def _chat_json_async(*args, **kwargs) -> dict:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, functools.partial(chat_json, *args, **kwargs))
+```
+
+This allows status endpoints to respond normally while a long humanization or analysis job is running in a thread pool.
+
 ---
 
 ## 📁 Project Structure
 
 ```
-humaniser-agent/
+humanizer-agent/
 ├── README.md
 ├── requirements.txt
 │
@@ -85,7 +137,7 @@ humaniser-agent/
 │   └── next.config.ts       # Reverse proxy → backend:8000
 │
 ├── utils/
-│   ├── chat.py              # LLM chat helpers
+│   ├── chat.py              # LLM chat helpers (supports timeout param)
 │   ├── images.py            # Image generation helpers
 │   └── litellm_client.py    # LiteLLM model client
 │
@@ -127,24 +179,29 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 # Frontend (in a separate terminal)
 cd frontend
 npm install
-npm run dev -- -H 0.0.0.0
+npm run build
+npx next start -H 0.0.0.0
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## ⚙️ Environment Variables
+## ⚙️ Configuration
 
-Create a `.env` file in the project root (or export directly):
+The app reads credentials from `/root/.claude/settings.json`:
 
-```env
-# LLM API key (used by LiteLLM)
-OPENAI_API_KEY=sk-...
-
-# Or for Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
+```json
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-...",
+    "ANTHROPIC_BASE_URL": "https://your-litellm-gateway/",
+    "ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929"
+  }
+}
 ```
+
+You can also override with environment variables `LITELLM_API_KEY` and `LITELLM_BASE_URL`.
 
 See [`agent-docs/LITELLM_GUIDE.md`](agent-docs/LITELLM_GUIDE.md) for full model configuration options.
 
@@ -178,6 +235,18 @@ After generation, a 6-step pixel-level pipeline is applied:
 4. **Colour temperature shift** — Random warm / cool / neutral tint
 5. **Vignette** — 4–8% edge darkening
 6. **JPEG recompression** — 78–85% quality to bake in DCT artifacts
+
+---
+
+## 📋 Logging
+
+The backend logs to stdout and to `/tmp/humanizer-backend.log` when started with:
+
+```bash
+nohup uvicorn main:app --host 0.0.0.0 --port 8000 >> /tmp/humanizer-backend.log 2>&1 &
+```
+
+All job failures log the full exception stack trace via `logger.exception(...)`, making it possible to diagnose LLM errors, timeouts, and JSON parse failures without restarting the server.
 
 ---
 
